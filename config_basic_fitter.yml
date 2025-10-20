@@ -1,0 +1,113 @@
+input: "/data/mdicosta/DplusFlow/ppref/Data/Train529267/AnalysisResultsHF_LHC24ap_pass1_small_2P3PDstar.root"
+output: "/home/mdicosta/YieldFitter/basic_fitter_test/fit_results.root"
+
+data_type: "DplusTask"
+is_data: true
+
+pt_limits: [5.0, 8.0] #, 5.0, 6.0]
+# pt_limits: [3.0, 3.5, 4.0] #, 5.0, 6.0]
+
+pt_bins:
+  - pt_range: [5.0, 8.0]
+    mass_range: [1.71, 2.05]
+    sgn_funcs: [["gaussian"]]
+    bkg_funcs: ["chebpol3"]
+    bincounting: True
+    Rebin: 2
+    init_pars_sgn:
+      mean: [1.865, 1.84, 1.89]
+      sigma: [0.02, 0.005, 0.05]
+    init_pars_bkg:
+      c0: [0.4, -1, +1]
+      c1: [-0.2, -1, +1]
+      c2: [-0.01, -1, +1]
+      c3: [0.01, -1, +1]
+  # - pt_range: [3.5, 4.0]
+  #   mass_range: [1.75, 1.95]
+  #   sgn_funcs: [["gaussian"], ["crystalball"]]
+  #   bkg_funcs: [["chebpol3"]]
+  #   bincounting: True
+  #   init_pars_sgn:
+  #     mean: [1.865, 1.84, 1.89]
+  #     sigma: [0.02, 0.005, 0.05]
+  #   init_pars_bkg:
+  #     c0: [0.4, -1, +1]
+  #     c1: [-0.2, -1, +1]
+  #     c2: [-0.01, -1, +1]
+  #     c3: [0.01, -1, +1]
+  # - pt_range: [4.0, 5.0]
+  #   mass_range: [1.75, 1.95]
+  #   sgn_funcs: [["doublecb"]]
+  #   bkg_funcs: [["chebpol3"]]
+  #   bincounting: True
+  #   init_pars_sgn:
+  #     mean: [1.865, 1.84, 1.89]
+  #     sigma: [0.02, 0.005, 0.05]
+  #   init_pars_bkg:
+  #     c0: [0.4, -1, +1]
+  #     c1: [-0.2, -1, +1]
+  #     c2: [-0.01, -1, +1]
+  #     c3: [0.01, -1, +1]
+  # - pt_range: [5.0, 6.0]
+  #   mass_range: [1.75, 1.95]
+  #   sgn_funcs: [["gaussian"]]
+  #   bkg_funcs: [["chebpol3"]]
+  #   bincounting: True
+  #   init_pars_sgn:
+  #     mean: [1.865, 1.84, 1.89]
+  #     sigma: [0.02, 0.005, 0.05]
+  #   init_pars_bkg:
+  #     c0: [0.4, -1, +1]
+  #     c1: [-0.2, -1, +1]
+  #     c2: [-0.01, -1, +1]
+  #     c3: [0.01, -1, +1]
+
+correlated_bkgs:
+  input: '/data/mdicosta/DplusFlow/ppref/Templates/Train529392/AO2DHF_LHC25g1_All.root'
+  apply_ml_score_sel: false
+  signal:
+    flag_mc_match_rec: 1
+    br_sim: 2.8e-1
+    br_pdg: 9.38e-2
+  sources:
+  - name: "DplusToPiPiPi"
+    flag_mc_match_rec: 3
+    br_sim: 3.4e-1
+    br_pdg: 3.3e-3
+  - name: "DstarD0ToPiKPi"
+    flag_mc_match_rec: 10
+    br_sim: 2.0e-1
+    br_pdg: 3.945e-2
+  - name: "DplusToPiKK"
+    flag_mc_match_rec: 4
+    br_sim: 3.3e-1
+    br_pdg: 9.68e-3
+  - name: "DsToPiKK"
+    flag_mc_match_rec: 5
+    br_sim: 2.0e-1
+    br_pdg: 5.45e-2
+    correct_abundance: 1.25
+  - name: "DsToPiPiPi"
+    flag_mc_match_rec: 8
+    br_sim: 2.5e-1
+    br_pdg: 1.09e-3
+    correct_abundance: 1.25
+  # - name: "DplusToPiKPiPi0"
+  #   flag_mc_match_rec: 2
+  #   br_sim: 5.0e-2
+  #   br_pdg: 6.25e-2
+  # - name: "DsToPiKKPi0"
+  #   flag_mc_match_rec: 6
+  #   br_sim: 5.0e-2
+  #   br_pdg: 5.53e-2
+  #   correct_abundance: 1.25
+  # - name: "DsToPiPiK"
+  #   flag_mc_match_rec: 7
+  #   br_sim: 2.5e-1
+  #   br_pdg: 6.23e-3
+  #   correct_abundance: 1.25
+  # - name: "DsToPiPiPiPi0"
+  #   flag_mc_match_rec: 9
+  #   br_sim: 2.5e-1
+  #   br_pdg: 3.8e-2
+  #   correct_abundance: 1.25

@@ -1,0 +1,44 @@
+operations:
+    preprocess_data: False
+    preprocess_mc: False
+    make_yaml: True
+    proj_data: False
+    proj_mc: True
+    produce_corr_bkgs_templs: False
+    get_raw_yields: False
+
+outdir: '/home/mdicosta/YieldFitter/preprocess/test_trees_mc'
+suffix: 'test'
+centrality: 'k010'
+Dmeson: 'Dplus'
+nworkers: 1
+
+ptbins: [
+           5.0,
+           6.0,
+       ]
+
+projections:
+    # PtWeightsFile: '/home/mdicosta/alice/hf-vn/ptweights/weights/Dplus/k3050/pTweight_Dplus_k3050_test_Dplus.root'
+    ApplyPtWeightsD: False
+    ApplyPtWeightsB: False
+    ApplyBSpeciesWeights: False
+    storeML: True
+
+preprocess:
+    data:
+        '2024':
+            files: [
+                  /data/mdicosta/DplusFlow/ppref/Templates/Train529392/AO2DHF_LHC25g1_All.root
+            ]
+    mc: '/data/mdicosta/DplusFlow/ppref/Templates/Train529392/AO2DHF_LHC25g1_All.root'
+    tables_data: ["O2hfcanddplite", "O2hfcanddpml"]
+    tables_mc_reco: ["O2hfcanddplite", "O2hfcanddpml"]
+    tables_mc_gen: ["O2hfcanddpfullp"]
+    cols_to_keep_data: ['fM', 'fPt', 'fCentrality', 'fMlScore0', 'fMlScore1']
+    cols_to_keep_mc_reco: ['fM', 'fPt', 'fCentrality', 'fMlScore0', 'fMlScore1']
+    cols_to_keep_mc_gen: ['fPt']
+    input_type: 'Tree'
+    data_model: 'DplusTree'
+    workers: 1
+    bkg_cuts: [0.12]

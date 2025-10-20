@@ -1,0 +1,65 @@
+operations:
+    preprocess_data: True
+    make_yaml: False
+    proj_data: False
+    produce_corr_bkgs_templs: False
+    get_raw_yields: False
+
+outdir: '/home/mdicosta/YieldFitter/preprocess/test_sparses'
+suffix: 'test'
+centrality: 'k0100'
+Dmeson: 'Dplus'
+nworkers: 1
+
+ptbins: [
+        #    1.0,
+        #    1.5,
+        #    2.0,
+        #    2.5,
+        #    3.0,
+        #    3.5,
+        #    4.0,
+           5.0,
+           6.0,
+        #    7.0,
+        #    8.0,
+        #    10.0,
+        #    12.0,
+        #    16.0,
+        #    24.0
+       ]
+
+projections:
+    # PtWeightsFile: '/home/mdicosta/alice/hf-vn/ptweights/weights/Dplus/k3050/pTweight_Dplus_k3050_test_Dplus.root'
+    ApplyPtWeightsD: False
+    ApplyPtWeightsB: False
+    ApplyBSpeciesWeights: False
+    storeML: True
+
+preprocess:
+    data:
+        '2024':
+            files: [
+                  /data/mdicosta/DplusFlow/ppref/Data/Train529267/AnalysisResultsHF_LHC24ap_pass1_small_2P3PDstar.root,
+                # /home/mdicosta/alice/hf-vn/datasets/Data_Dplus_3050.root
+            ]
+    mc: Null
+    input_type: 'Sparse'
+    axes_data: {
+        'Mass': 1,
+        'score_bkg': 1,
+        'score_FD': 1
+    }
+    # axes_reco: {
+    #     'Mass': 1, 
+    #     'Pt': 1, 
+    #     'score_bkg': 1, 
+    #     'score_FD': 1
+    # }
+    # axes_gen: {
+    #     'Pt': 1, 
+    #     'cent': 1
+    # }
+    workers: 1
+    bkg_cuts: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+    # bkg_cuts: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
