@@ -9,7 +9,6 @@ from utils import logger
 import ROOT
 
 def print_entries(data, stage_desc=""):
-    print(f"type(data): {type(data)}")
     if isinstance(data, ROOT.THnSparse):
         n_entries = data.GetEntries()
         print(f"{stage_desc} - THnSparse entries: {n_entries}\n")
@@ -93,6 +92,7 @@ def get_histo(input_file, sparse_dicts, cfg, pt_bin_fit_cfg):
             dict_entry = "RecoPrompt"
         
         # Apply selections
+        print(f"\n\nsparse_dicts: {sparse_dicts}\n\n")
         sparse.GetAxis(sparse_dicts[dict_entry]['Pt']).SetRangeUser(pt_bin_fit_cfg['pt_range'][0], pt_bin_fit_cfg['pt_range'][1])
         if pt_bin_fit_cfg.get('score_bkg_max') and cfg.get('correlated_bkgs'):
             if cfg['correlated_bkgs'].get('apply_ml_score_sel'):
@@ -150,7 +150,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'flag_bhad': 5,
         }
 
-    if data_type == "DplusCorrelator":
+    elif data_type == "DplusCorrelator":
         axes_dict["Data"] = {
             'Mass': 'fMD',
             'Pt': 'fPtD',
@@ -159,7 +159,8 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'score_FD': 'fMlScoreNonPrompt'
         }
 
-    if data_type == "DplusTree":
+    elif data_type == "DplusTree":
+        print(f"Getting data model dicts for data_type: {data_type}")
         axes_dict["Data"] = {
             'Mass': 'fM',
             'Pt': 'fPt',
@@ -197,7 +198,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'cent': 'fCentrality',
         }
         
-    if data_type == "PreprocessedTree":
+    elif data_type == "PreprocessedTree":
         axes_dict["Data"] = {
             'Mass': 'fM',
             'Pt': 'fPt',
@@ -231,7 +232,10 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'Pt': 'Pt',
             'cent': 'Centrality'
         }
+    else:
+        logger(f"Data model for data_type {data_type} not implemented yet.", level='FATAL')
 
+    print(f"\n\nData model dicts for data_type {data_type}: {axes_dict}")
     return axes_dict
 
 def get_pt_preprocessed_inputs(config, iPt, is_sparse_data_type):
@@ -332,7 +336,7 @@ def get_inputs(config, get_data=True, get_mc=True, debug=False):
 
     inputsData, inputsReco, inputsGen = {}, {}, {}
     cfg_prep = config['preprocess']
-    is_tree_input = cfg_prep['input_type'] == "Tree"
+    is_tree_input = config['input_type'] == "Tree"
     axes_dict = get_data_model_dicts(config, data_type=cfg_prep['data_model'])
     pre_cfg = config['preprocess'] if config.get('preprocess') else config
     print("About to load inputs...")
@@ -340,44 +344,58 @@ def get_inputs(config, get_data=True, get_mc=True, debug=False):
         logger(f"\t\t[Data] Loading data from: {pre_cfg['data']}")
         infile = []
         for name, dataset in pre_cfg['data'].items():
+            print(f"Loading data for dataset {name} from {dataset['files']}")
             # Collect all files starting with AnalysisResults_ and ending with .root in the dataset['files'] string
             if isinstance(dataset["files"], str) and not dataset["files"].endswith(".root"):
+                print("string but not root")
                 list_of_files = [f for f in os.listdir(dataset["files"]) if f.endswith(".root")]
                 infiledata = [TFile(os.path.join(dataset["files"], file)) for file in list_of_files]
             elif isinstance(dataset["files"], list):
+                print("list")
                 if len(dataset["files"]) == 1:
+                    print("single file")
                     if dataset["files"][0].endswith(".root"):
+                        print("single root file")
                         list_of_files = [dataset["files"][0]]
                         infiledata = [TFile(dataset["files"][0])]
                     else:
+                        print("single directory")
                         list_of_files = [f for f in os.listdir(dataset["files"][0]) if f.endswith(".root")]
                         infiledata = [TFile(os.path.join(dataset["files"][0], file)) for file in list_of_files]
                 elif len(dataset["files"]) > 1:
+                    print("multiple files")
                     if all(file.endswith(".root") for file in dataset["files"]):
+                        print("all root files")
+                        print(f"\n\nLoading multiple root files for dataset {name}: {dataset['files']}")
+                        list_of_files = dataset['files']
+                        print(f"\n\nLoading multiple root files for dataset {name}: {list_of_files}\n\n")
+                        # quit()
                         infiledata = [TFile(file) for file in dataset["files"]]
                     else:
+                        print("not all root files")
                         logger("The dataset contains multiple files, but not all of them are root files. Provide a single root file or a list of root files or a directory containing all root files.", level='ERROR')
             else:
+                print("single root file")
                 infiledata = [TFile(dataset["files"])] if isinstance(dataset["files"], str) else [TFile(file) for file in dataset["files"]]
             print(f"Loading data sparse for {name} from {infiledata}")
             inputsData[f'_{name}'] = []
             with alive_bar(len(infiledata), title=f"[INFO]\t\t[Data] Loading data inputs for {name}") as bar:
                 for infile, infilename in zip(infiledata, list_of_files):
-                    if cfg_prep['input_type'] == "Sparse":
+                    if config['input_type'] == "Sparse":
                         inputsData[f'_{name}'].append(infile.Get('hf-task-dplus/hSparseMass'))
-                    elif cfg_prep['input_type'] == "Tree":
+                    elif config['input_type'] == "Tree":
                         inputsData[f'_{name}'].append(build_tree_data_frame(infilename, config["preprocess"]["tables"], config["preprocess"]["cols_to_keep_data"], query_signal=None))
                     else:
-                        logger(f"Unknown input type {cfg_prep['input_type']}. Supported types are 'Sparse' and 'Tree'.", level='FATAL')
+                        logger(f"Unknown input type {config['input_type']}. Supported types are 'Sparse' and 'Tree'.", level='FATAL')
                     bar()
             [infile.Close() for infile in infiledata]
-
+        print(f"Loaded inputsData: {inputsData}\n\n")
     if get_mc:
         print(f"Loading mc from: {pre_cfg['mc']}")
         infiletask = [TFile(pre_cfg['mc'])] if isinstance(pre_cfg['mc'], str) else [TFile(pre_cfg['mc']) for file in pre_cfg['mc']]
         infiletasknames = [pre_cfg['mc']] if isinstance(pre_cfg['mc'], str) else pre_cfg['mc']
 
-        if cfg_prep['input_type'] == "Sparse":
+        if config['input_type'] == "Sparse":
             inputsReco['RecoFD']     = [file.Get('hf-task-dplus/hSparseMassFD') for file in infiletask]
             print(f"Loaded inputsReco: {inputsReco['RecoFD']}\n\n")
             inputsReco['RecoPrompt'] = [file.Get('hf-task-dplus/hSparseMassPrompt') for file in infiletask]
@@ -386,7 +404,7 @@ def get_inputs(config, get_data=True, get_mc=True, debug=False):
             print(f"Loaded inputsGen: {inputsGen['GenPrompt']}\n\n")
             inputsGen['GenFD']       = [file.Get('hf-task-dplus/hSparseMassGenFD') for file in infiletask]
             print(f"Loaded inputsGen: {inputsGen['GenFD']}\n\n")
-        elif cfg_prep['input_type'] == "Tree":
+        elif config['input_type'] == "Tree":
             inputsReco['RecoFD']     = [build_tree_data_frame(file, cfg_prep["tables_mc_reco"], cfg_prep["cols_to_keep_mc_reco"], "fOriginMcRec == 1 and abs(fFlagMcMatchRec) == 1") for file in infiletasknames]
             print(f"Loaded inputsReco: {inputsReco['RecoFD']}\n\n")
             inputsReco['RecoPrompt'] = [build_tree_data_frame(file, cfg_prep["tables_mc_reco"], cfg_prep["cols_to_keep_mc_reco"], "fOriginMcRec == 2 and abs(fFlagMcMatchRec) == 1") for file in infiletasknames]
@@ -396,7 +414,7 @@ def get_inputs(config, get_data=True, get_mc=True, debug=False):
             inputsGen['GenFD']       = [build_tree_data_frame(file, cfg_prep["tables_mc_gen"], cfg_prep["cols_to_keep_mc_gen"], "fOriginMcGen == 2 and abs(fFlagMcMatchGen) == 1") for file in infiletasknames]
             print(f"Loaded inputsGen: {inputsGen['GenFD']}\n\n")
         else:
-            logger(f"Unknown input type {cfg_prep['input_type']}. Supported types are 'Sparse' and 'Tree'.", level='FATAL')
+            logger(f"Unknown input type {config['input_type']}. Supported types are 'Sparse' and 'Tree'.", level='FATAL')
 
         [infile.Close() for infile in infiletask]
 
@@ -410,11 +428,10 @@ def get_inputs(config, get_data=True, get_mc=True, debug=False):
                 logger(f"    {sub_key}: {sub_value}", level='DEBUG')
         print('###############################################################')
         print('\n')
-
-    # print("Inputs loaded:\n")
-    # print(f"  Data inputs: {inputsData}")
-    # print(f"  Reco inputs: {inputsReco}")
-    # print(f"  Gen inputs: {inputsGen}\n")
+        print("Inputs loaded:\n")
+        print(f"  Data inputs: {inputsData}\n\n")
+        print(f"  Reco inputs: {inputsReco}\n\n")
+        print(f"  Gen inputs: {inputsGen}\n\n")
 
     return inputsData, inputsReco, inputsGen, axes_dict
 

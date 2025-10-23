@@ -62,7 +62,7 @@ def perform_fit(config, fit_config, data_model_dict, fit_data, tree_corr_bkgs, f
     """
 
     if config.get('is_tree'):
-        fit_data = fit_data.rename(columns={f'{data_model_dict["MassCol"]}': 'fM'})
+        fit_data = fit_data.rename(columns={f'{data_model_dict["Data"]["Mass"]}': 'fM'})
         data_hdl = DataHandler(fit_data, var_name='fM', limits=[mass_min, mass_max], nbins=100)
     else:
         data_hdl = DataHandler(fit_data, limits=[mass_min, mass_max])
@@ -183,11 +183,12 @@ def fit(input_config):
             if cfg.get('is_tree'):
                 if pt_bin.get('score_bkg_max') and cfg.get('correlated_bkgs'):
                     if cfg['correlated_bkgs'].get('apply_ml_score_sel'):
-                        tree_sgn_pt = tree_sgn.query(f"{data_model_dict['PtCol']} > {pt_min} and {data_model_dict['PtCol']} < {pt_max} and {data_model_dict['BkgScoreCol']} < {pt_bin['score_bkg_max']}")
+                        tree_sgn_pt = tree_sgn.query(f"{data_model_dict['Data']['Pt']} > {pt_min} and {data_model_dict['Data']['Pt']} < {pt_max} and {data_model_dict['Data']['BkgScoreCol']} < {pt_bin['score_bkg_max']}")
                     else:
                         tree_sgn_pt = tree_sgn
                 else:
-                    tree_sgn_pt = tree_sgn.query(f"{data_model_dict['PtCol']} > {pt_min} and {data_model_dict['PtCol']} < {pt_max}")
+                    print(f"data_model_dict: {data_model_dict}\n\n")
+                    tree_sgn_pt = tree_sgn.query(f"{data_model_dict['Data']['Pt']} > {pt_min} and {data_model_dict['Data']['Pt']} < {pt_max}")
                 fitter = perform_fit(cfg, pt_bin, data_model_dict, tree_sgn_pt, tree_corr_bkgs, pt_label, sgn_func, pt_bin['bkg_funcs'], mass_min, mass_max)
             else:
                 fit_histo = get_histo(input_file, data_model_dict, cfg, pt_bin)

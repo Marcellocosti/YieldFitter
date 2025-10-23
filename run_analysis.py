@@ -198,15 +198,20 @@ if __name__ == "__main__":
 
 	operations = config['operations']
 	nworkers = config['nworkers']
-	outdir = f"{config['outdir']}/cutvar_{config['suffix']}"
+	if config.get('suffix'):
+		outdir = f"{config['outdir']}/cutvar_{config['suffix']}"
+		suffix = f"_{config['suffix']}"
+	else:
+		outdir = f"{config['outdir']}/cutvar"
+		suffix = ''
 	os.system(f"mkdir -p {outdir}")
 
 	# copy the configuration file
 	nfile = 0
 	os.makedirs(f'{outdir}/config_ry', exist_ok=True)
-	while os.path.exists(f'{outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}_{config["suffix"]}_{nfile}.yml'):
+	while os.path.exists(f'{outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}{suffix}_{nfile}.yml'):
 		nfile = nfile + 1
-	os.system(f'cp {args.config} {outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}_{config["suffix"]}_{nfile}.yml')
+	os.system(f'cp {args.config} {outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}{suffix}_{nfile}.yml')
 
 	if operations.get('preprocess_data') or operations.get('preprocess_mc'):
 		print("\033[32mINFO: Preprocess will be performed\033[0m")

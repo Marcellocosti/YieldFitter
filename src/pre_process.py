@@ -56,15 +56,15 @@ def process_pt_bin_data_sparses(config, ptmin, ptmax, centmin, centmax, bkg_max_
 
     for key, dataset_inputs in data_inputs.items():
         with alive_bar(len(dataset_inputs), title=f'[INFO] \t\t[Data] Processing {key}', bar='smooth') as bar:
-            for i_input, input_data in enumerate(dataset_inputs):
-                print_entries(input_data, "[Data] Before cuts")
-                dataset_inputs[i_input] = apply_selection(input_data, data_model_vars, 'Pt', ptmin, ptmax)
-                print_entries(input_data, "[Data] After pt cut")
-                dataset_inputs[i_input] = apply_selection(input_data, data_model_vars, 'score_bkg', 0, bkg_max_cut)
-                print_entries(input_data, "[Data] After pt cut and bkg cut")
+            for i_input, _ in enumerate(dataset_inputs):
+                print_entries(dataset_inputs[i_input], "[Data] Before cuts")
+                dataset_inputs[i_input] = apply_selection(dataset_inputs[i_input], data_model_vars, 'Pt', ptmin, ptmax)
+                print_entries(dataset_inputs[i_input], "[Data] After pt cut")
+                dataset_inputs[i_input] = apply_selection(dataset_inputs[i_input], data_model_vars, 'score_bkg', 0, bkg_max_cut)
+                print_entries(dataset_inputs[i_input], "[Data] After pt cut and bkg cut")
 
-                proj_sparse = input_data.Projection(len(proj_axes), array.array('i', proj_axes), 'O')
-                proj_sparse.SetName(input_data.GetName())
+                proj_sparse = dataset_inputs[i_input].Projection(len(proj_axes), array.array('i', proj_axes), 'O')
+                proj_sparse.SetName(dataset_inputs[i_input].GetName())
                 proj_sparse = proj_sparse.Rebin(array.array('i', rebin_data))
                 print(f"proj_sparse.GetEntries() = {proj_sparse.GetEntries()}", flush=True)
 
@@ -213,15 +213,6 @@ def process_pt_bin_mc_trees(config, ptmin, ptmax, centmin, centmax, bkg_max_cut,
 
 def process_pt_bin_mc_sparses(config, ptmin, ptmax, centmin, centmax, bkg_max_cut, debugPreprocessFile, outputDir, reco_inputs, gen_inputs, data_model_vars):
     print(f'[MC] Processing pT bin {ptmin} - {ptmax}, cent {centmin}-{centmax}')
-    # outFilePath = f'{outputDir}/preprocess/AnalysisResults_pt_{int(ptmin*10)}_{int(ptmax*10)}.root'
-    # if os.path.exists(outFilePath):
-    #     print(f"    [MC] Updating file: {outFilePath}")
-    #     outFile = TFile(outFilePath, 'update')
-    #     write_opt = TObject.kOverwrite
-    # else:
-    #     print(f"    [MC] Creating file: {outFilePath}")
-    #     outFile = TFile.Open(outFilePath, 'recreate')
-    #     write_opt = 0 # Standard
 
     outFile, write_opt = check_existing_outputs(ptmin, ptmax, outputDir, "MC")
 
@@ -293,7 +284,7 @@ def pre_process_data_mc(config):
     ptmaxs = config['ptbins'][1:] 
     centmin, centmax = get_centrality_bins(config['centrality'])[1]
 
-    # Load the ThnSparse
+    # Load the inputs
     data_inputs, reco_inputs, gen_inputs, data_model_vars = get_inputs(config, config["operations"].get("preprocess_data", False),
                                                                        config["operations"].get("preprocess_mc", False), True)
     outputDir = config.get('outdirPrep', config['outdir'])
@@ -315,7 +306,7 @@ def pre_process_data_mc(config):
                 print_entries(dataset_inputs[i_input], "[Data] After cent and bkg cuts")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
-            if config['preprocess']['input_type'] == "Tree":
+            if config['input_type'] == "Tree":
                 tasks_data = [executor.submit(process_pt_bin_data_trees, config, ptmin, ptmax, centmin, centmax, bkg_maxs[iPt],
                                                                          debugPreprocessFile, outputDir, data_inputs,
                                                                          data_model_vars['Data']) for iPt, (ptmin, ptmax) in enumerate(zip(ptmins, ptmaxs))]
@@ -348,7 +339,7 @@ def pre_process_data_mc(config):
             # [apply_selection(sparse, data_model_vars[key], 'cent', centmin, centmax) for sparse in reco_input]
             # [apply_selection(sparse, data_model_vars[key], 'score_bkg', 0, max(bkg_maxs)) for sparse in reco_input]
         for key, gen_input in gen_inputs.items():
-            if config['preprocess']['input_type'] == "Tree":
+            if config['input_type'] == "Tree":
                 logger(f"Skipping cent cut for gen trees for key {key} as the centrality column is not present", level='WARNING')
             else:
                 for i_input in range(len(gen_input)):
@@ -357,7 +348,7 @@ def pre_process_data_mc(config):
                     print_entries(gen_input[i_input], "[MC Gen] After cent cut")
                     # [apply_selection(sparse, data_model_vars[key], 'cent', centmin, centmax) for sparse in input_type]
         with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
-            if config['preprocess']['input_type'] == "Tree":
+            if config['input_type'] == "Tree":
                 tasks_mc = [executor.submit(process_pt_bin_mc_trees, config, ptmin, ptmax, centmin, centmax, bkg_maxs[iPt], 
                                                                      debugPreprocessFile, outputDir, reco_inputs, gen_inputs, 
                                                                      data_model_vars) for iPt, (ptmin, ptmax) in enumerate(zip(ptmins, ptmaxs))]
