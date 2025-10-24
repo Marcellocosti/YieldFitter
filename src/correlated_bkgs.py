@@ -247,7 +247,7 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
                 histo_channel.Write()
                 hBRs = ROOT.TH1F("hBRs", "hBRs;Branching Ratio", 4, 0, 4)
                 hBRs.GetXaxis().SetBinLabel(1, "MC")
-                br_mc = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1) * (fin_state_info[f'br_sim_{cfg_corrbkgs["coll_system"]}'])
+                br_mc = fin_state_info[f'br_sim_{cfg_corrbkgs["coll_system"]}']
                 hBRs.SetBinContent(1, br_mc)
                 hBRs.GetXaxis().SetBinLabel(2, "PDG")
                 br_pdg = fin_state_info['br_pdg']
@@ -258,7 +258,8 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
                 hBRs.GetXaxis().SetBinLabel(4, "RY * (PDG/MC)")
                 hBRs.SetBinContent(4, raw_yield * (br_pdg/br_mc))
                 print(f"Storing weight for final state {fin_state}: {raw_yield * (br_pdg/br_mc)}")
-                histo_weights_dict[fin_state] = [raw_yield * (br_pdg/br_mc), histo_channel]
+                correct_abundance_wrt_sgn = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1)
+                histo_weights_dict[fin_state] = [raw_yield * correct_abundance_wrt_sgn * (br_pdg/br_mc), histo_channel]
                 hBRs.Write()
 
         n_final_states = len(histo_weights_dict)

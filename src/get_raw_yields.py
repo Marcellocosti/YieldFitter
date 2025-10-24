@@ -37,7 +37,7 @@ def get_corr_bkg_template(path, input_type, file_path):
         hist.SetDirectory(0)
         return hist
 
-def set_fitter_init_pars(fitter, cfg, pt_min, pt_max):
+def set_fitter_init_pars(fitter, cfg, pt_min, pt_max, n_bkg_functs):
     print(f"Setting fitter initial parameters for pt range {pt_min} - {pt_max} GeV/c")
 
     if cfg.get("fix_pars_sgn"):
@@ -50,10 +50,9 @@ def set_fitter_init_pars(fitter, cfg, pt_min, pt_max):
 
     if cfg.get("fix_pars_bkg"):
         for setting in cfg["fix_pars_bkg"]:
-            bkg_func_idx = setting[0]
-            par_name = setting[1]
-            par_val = setting[2]
-            fitter.set_background_initpar(bkg_func_idx, par_name, par_val, fix=True)
+            par_name = setting[0]
+            par_val = setting[1]
+            fitter.set_background_initpar(n_bkg_functs-1, par_name, par_val, fix=True)
             print(f"---> fixing bkg par {par_name} to value {par_val}")
 
     if cfg.get("init_pars_sgn"):
@@ -67,11 +66,10 @@ def set_fitter_init_pars(fitter, cfg, pt_min, pt_max):
 
     if cfg.get("init_pars_bkg"):
         for setting in cfg["init_pars_bkg"]:
-            bkg_func_idx = setting[0]
-            par_name = setting[1]
-            par_val = setting[2]
-            par_lims = setting[3]
-            fitter.set_background_initpar(bkg_func_idx, par_name, par_val, limits=par_lims)
+            par_name = setting[0]
+            par_val = setting[1]
+            par_lims = setting[2]
+            fitter.set_background_initpar(n_bkg_functs-1, par_name, par_val, limits=par_lims)
             print(f"---> setting bkg par {par_name} to value {par_val}, limits {par_lims}")
 
     if cfg.get("fix_sgn_from_file"):
@@ -208,6 +206,7 @@ def get_raw_yields(fitConfigFileName, inFileName):
         print(f"len(pt_bin_cfg['bkg_func']): {len(pt_bin_cfg['bkg_func'])}")
         label_bkg_pdf = []
         label_signal_pdf = [rf"$\mathrm{{{particle_name}}}$ signal"]
+        print(f"\n\nUsing signal function: {sgn_functs} and background function: {bkg_functs}")
 
         # Add correlated bkg templates
         corr_bkgs_templs, sgn_bkgs_templs = [], []
@@ -288,12 +287,13 @@ def get_raw_yields(fitConfigFileName, inFileName):
 
             # Fix the fractions for templates modelled with functions (signal functions)
             for i_func, frac_to_sgn in enumerate(sgn_bkgs_templs):
-                print(f"len(pt_bin_cfg['sgn_func']): {len(pt_bin_cfg['sgn_func'])}, fixing frac")
+                print(f"Setting correlated bkg function {i_func+len(pt_bin_cfg['sgn_func'])} fraction " \
+                      f"to {frac_to_sgn} wrt signal pdf no. {sgn_func_idx}")
                 fitter_pt.fix_signal_frac_to_signal_pdf(i_func+len(pt_bin_cfg['sgn_func']), sgn_func_idx, frac_to_sgn)
 
         fitter_pt.set_signal_initpar(sgn_func_idx, "frac", 0.2, limits=[0., 1.])
         if pt_bin_cfg.get("init_pars"):
-            set_fitter_init_pars(fitter_pt, pt_bin_cfg["init_pars"], pt_min, pt_max)
+            set_fitter_init_pars(fitter_pt, pt_bin_cfg["init_pars"], pt_min, pt_max, len(bkg_functs))
         result = fitter_pt.mass_zfit()
 
         if result.converged:
