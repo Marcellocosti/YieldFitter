@@ -94,7 +94,7 @@ def produce_corr_bkgs_templs_trees(config, cutset_config):
 
                 hBRs = ROOT.TH1F("hBRs", "hBRs;Branching Ratio", 4, 0, 4)
                 hBRs.GetXaxis().SetBinLabel(1, "MC")
-                br_mc = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1) * (fin_state_info['br_sim'])
+                br_mc = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1) * (fin_state_info[f'br_sim_{cfg_corrbkgs["coll_system"]}'])
                 hBRs.SetBinContent(1, br_mc)
                 hBRs.GetXaxis().SetBinLabel(2, "PDG")
                 br_pdg = fin_state_info['br_pdg']
@@ -247,7 +247,7 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
                 histo_channel.Write()
                 hBRs = ROOT.TH1F("hBRs", "hBRs;Branching Ratio", 4, 0, 4)
                 hBRs.GetXaxis().SetBinLabel(1, "MC")
-                br_mc = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1) * (fin_state_info['br_sim'])
+                br_mc = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1) * (fin_state_info[f'br_sim_{cfg_corrbkgs["coll_system"]}'])
                 hBRs.SetBinContent(1, br_mc)
                 hBRs.GetXaxis().SetBinLabel(2, "PDG")
                 br_pdg = fin_state_info['br_pdg']
@@ -278,8 +278,8 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
                 total_signal_weight = weight
             else:
                 hMassTotalCorrBkgs.Add(histo, weight)
-                hWeightsAnchorSignal.GetXaxis().SetBinLabel(i_fin_state+1, name)
-                hWeightsAnchorSignal.SetBinContent(i_fin_state+1, weight)
+            hWeightsAnchorSignal.GetXaxis().SetBinLabel(i_fin_state+1, name)
+            hWeightsAnchorSignal.SetBinContent(i_fin_state+1, weight)
 
         # Normalize weights histogram to the total signal weight
         hWeightsAnchorSignal.Scale(1 / total_signal_weight)
