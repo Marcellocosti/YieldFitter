@@ -150,6 +150,26 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'flag_bhad': 5,
         }
 
+    if data_type == "DsTask":
+        ### Data
+        axes_dict['Data'] = {
+            'Mass': 0,
+            'Pt': 1,
+            'cent': 2,
+            'score_bkg': 3,
+            'score_FD': 5
+        }
+
+        ### MC
+        axes_dict['RecoPrompt'] = {
+        }
+        axes_dict['RecoFD'] = {
+        }
+        axes_dict['GenPrompt'] = {
+        }
+        axes_dict['GenFD'] = {
+        }
+
     elif data_type == "DplusCorrelator":
         axes_dict["Data"] = {
             'Mass': 'fMD',
@@ -318,6 +338,23 @@ def get_pt_preprocessed_sparses(config, iPt):
 
     return inputsData, inputsReco, inputsGen, axes_dict
 
+def get_sparse_name(config, data_type="data"):
+    particle = config["Dmeson"]
+    print(f"Getting sparse name for particle {particle} and data_type {data_type}")
+    if particle == "Dplus" and data_type == "data":
+        sparse_name = "hf-task-dplus/hSparseMass"
+    elif particle == "Dplus" and data_type == "RecoPrompt":
+        sparse_name = "hf-task-dplus/hSparseMassPrompt"
+    elif particle == "Dplus" and data_type == "RecoFD":
+        sparse_name = "hf-task-dplus/hSparseMassFD"
+    elif particle == "Dplus" and data_type == "GenPrompt":
+        sparse_name = "hf-task-dplus/hSparseMassGenPrompt"
+    elif particle == "Dplus" and data_type == "GenFD":
+        sparse_name = "hf-task-dplus/hSparseMassGenFD"
+    elif particle == "Ds" and data_type == "data":
+        sparse_name = "hf-task-ds/Data/hSparseMass"
+    return sparse_name
+
 def get_inputs(config, get_data=True, get_mc=True, debug=False):
     """Load the inputs and axes infos
 
@@ -382,7 +419,8 @@ def get_inputs(config, get_data=True, get_mc=True, debug=False):
             with alive_bar(len(infiledata), title=f"[INFO]\t\t[Data] Loading data inputs for {name}") as bar:
                 for infile, infilename in zip(infiledata, list_of_files):
                     if config['input_type'] == "Sparse":
-                        inputsData[f'_{name}'].append(infile.Get('hf-task-dplus/hSparseMass'))
+                        print(f"Getting sparse {get_sparse_name(config, 'data')} from file {infilename}")
+                        inputsData[f'_{name}'].append(infile.Get(get_sparse_name(config, "data")))
                     elif config['input_type'] == "Tree":
                         inputsData[f'_{name}'].append(build_tree_data_frame(infilename, config["preprocess"]["tables"], config["preprocess"]["cols_to_keep_data"], query_signal=None))
                     else:
@@ -396,13 +434,13 @@ def get_inputs(config, get_data=True, get_mc=True, debug=False):
         infiletasknames = [pre_cfg['mc']] if isinstance(pre_cfg['mc'], str) else pre_cfg['mc']
 
         if config['input_type'] == "Sparse":
-            inputsReco['RecoFD']     = [file.Get('hf-task-dplus/hSparseMassFD') for file in infiletask]
+            inputsReco['RecoFD']     = [file.Get(get_sparse_name(config, "RecoFD")) for file in infiletask]
             print(f"Loaded inputsReco: {inputsReco['RecoFD']}\n\n")
-            inputsReco['RecoPrompt'] = [file.Get('hf-task-dplus/hSparseMassPrompt') for file in infiletask]
+            inputsReco['RecoPrompt'] = [file.Get(get_sparse_name(config, "RecoPrompt")) for file in infiletask]
             print(f"Loaded inputsReco: {inputsReco['RecoPrompt']}\n\n")
-            inputsGen['GenPrompt']   = [file.Get('hf-task-dplus/hSparseMassGenPrompt') for file in infiletask]
+            inputsGen['GenPrompt']   = [file.Get(get_sparse_name(config, "GenPrompt")) for file in infiletask]
             print(f"Loaded inputsGen: {inputsGen['GenPrompt']}\n\n")
-            inputsGen['GenFD']       = [file.Get('hf-task-dplus/hSparseMassGenFD') for file in infiletask]
+            inputsGen['GenFD']       = [file.Get(get_sparse_name(config, "GenFD")) for file in infiletask]
             print(f"Loaded inputsGen: {inputsGen['GenFD']}\n\n")
         elif config['input_type'] == "Tree":
             inputsReco['RecoFD']     = [build_tree_data_frame(file, cfg_prep["tables_mc_reco"], cfg_prep["cols_to_keep_mc_reco"], "fOriginMcRec == 1 and abs(fFlagMcMatchRec) == 1") for file in infiletasknames]

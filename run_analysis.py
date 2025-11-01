@@ -13,8 +13,9 @@ from utils import check_dir, logger
 paths = {
 	"Preprocess": os.path.join(work_dir, "./src/pre_process.py"),
 	"YamlCuts": os.path.join(work_dir, "./src/make_cutsets_cfgs.py"),
-	"CorrBkgs": os.path.join(work_dir, "./src/correlated_bkgs.py"),
 	"Projections": os.path.join(work_dir, "./src/projector.py"),
+	"CorrBkgs": os.path.join(work_dir, "./src/correlated_bkgs.py"),
+	"CorrBkgsSmoother": os.path.join(work_dir, "./src/correlated_bkgs_smoother.py"),
 	"Efficiencies": os.path.join(work_dir, "./src/compute_efficiencies.py"),
 	"GetRawYields": os.path.join(work_dir, "./src/get_raw_yields.py"),
 	"CutVariation": os.path.join(work_dir, "./src/cut_variation.py"),
@@ -29,10 +30,10 @@ def make_yaml(config, outdir, correlated=False):
 	logger(f"{cmd}", level="COMMAND")
 	os.system(cmd)
 
-def produce_corr_bkgs_templs(config, outdir, nworkers, mCutSets):
+def produce_corr_bkgs_templs(config, outdir, nworkers, mCutSets, smooth):
 	logger("Correlated backgrounds will be evaluated", level="INFO")
 	os.makedirs(f"{outdir}/corrbkgs", exist_ok=True)
-
+	print(f"Config: {config}")
 	def run_corr_bkgs(i):
 		"""Run sparse projection for a given cutset index."""
 		iCutSets = f"{i:02d}"
@@ -132,7 +133,7 @@ def data_driven_fraction(outdir):
 	logger(f"{cmd}", level="COMMAND")
 	os.system(cmd)
 
-def run_cut_variation(config, operations, nworkers, outdir):
+def run_cut_variation(config, config_file, operations, nworkers, outdir):
 	#___________________________________________________________________________________________________________________________
 	# make yaml file
 	if operations.get('make_yaml', False):
@@ -144,18 +145,19 @@ def run_cut_variation(config, operations, nworkers, outdir):
 	logger(f"mCutSets: {mCutSets}", level="INFO")
 
 	#___________________________________________________________________________________________________________________________
-	# Correlated bkgs templates
-	if operations.get('produce_corr_bkgs_templs', False):
-		produce_corr_bkgs_templs(config, outdir, nworkers, mCutSets)
-	else:
-		logger("Correlated bkgs will not be included", level="WARNING")
-
-	#___________________________________________________________________________________________________________________________
-	# Projection for MC and apply the ptweights
+	# Projection for Data and/or MC
 	if operations.get('proj_mc', False) or operations.get('proj_data', False):
 		project(config, outdir, nworkers, mCutSets)
 	else:
 		logger("Projections will not be performed", level="WARNING")
+
+	#___________________________________________________________________________________________________________________________
+	# Correlated bkgs templates
+	if operations.get('produce_corr_bkgs_templs', False):
+		produce_corr_bkgs_templs(config, outdir, nworkers, mCutSets, 
+                                 config_file['corr_bkgs'].get('smooth', False))
+	else:
+		logger("Correlated bkgs will not be included", level="WARNING")
 
 	#___________________________________________________________________________________________________________________________
 	# Efficiencies
@@ -219,7 +221,7 @@ if __name__ == "__main__":
 	else:
 		print("\033[33mWARNING: Preprocess will not be performed\033[0m")
 
-	run_cut_variation(args.config, operations, nworkers, outdir)
+	run_cut_variation(args.config, config, operations, nworkers, outdir)
 
 	end_time = time.time()
 	execution_time = end_time - start_time

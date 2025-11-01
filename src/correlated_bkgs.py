@@ -18,6 +18,7 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.join(script_dir, '..', 'utils'))
 from utils import logger, get_centrality_bins, make_dir_root_file
 from corr_bkgs_brs import final_states
+from ROOT import RooRealVar, RooDataSet, RooArgSet, RooKeysPdf
 
 def produce_corr_bkgs_templs_trees(config, cutset_config):
     print("Producing correlated backgrounds templates - trees output")
@@ -69,7 +70,6 @@ def produce_corr_bkgs_templs_trees(config, cutset_config):
                                                                                               cfg_cutset["score_FD"]["min"],
                                                                                               cfg_cutset["score_FD"]["max"])):
         pt_key = f"pt_{int(pt_min*10)}_{int(pt_max*10)}"
-        print(f"pt_key: {pt_key}")
         corr_bkgs_info_dict[pt_key] = {}
         histo_weights_dict = {}
         print(f"Processing pt bin: {pt_min} - {pt_max}")
@@ -80,15 +80,12 @@ def produce_corr_bkgs_templs_trees(config, cutset_config):
         cutset_sel_df = full_df.query(query_str)
 
         for fin_state, fin_state_info in final_states.items():
-            print(f"Processing final state: {fin_state}")
             if not any(fin_state in name for name in final_states_to_include):
                 continue
 
             selected_df = cutset_sel_df.query(fin_state_info['query'])
-            print(f"Number of selected candidates for final state {fin_state}: {len(selected_df)}")
             if len(selected_df) > 0:
                 with getattr(uproot, write_file_mode)(out_file_name) as outfile:
-                    print(f"Writing tree for {pt_key}/{fin_state}/treeMass")
                     outfile[f"{pt_key}/{fin_state}/treeMass"] = selected_df['fM'].to_frame()
                     write_file_mode = "update"
 
@@ -121,7 +118,6 @@ def produce_corr_bkgs_templs_trees(config, cutset_config):
 
         hWeightsAnchorSignal = ROOT.TH1F("hWeightsAnchorSignal", "hWeightsAnchorSignal", n_final_states, 0, n_final_states)
         for i_fin_state, (name, (weight, histo)) in enumerate(histo_weights_dict.items()):
-            print(f"name: {name}, weight: {weight}")
             hWeightsAnchorSignal.GetXaxis().SetBinLabel(i_fin_state+1, name)
             hWeightsAnchorSignal.SetBinContent(i_fin_state+1, weight)
 
@@ -146,14 +142,40 @@ def produce_corr_bkgs_templs_trees(config, cutset_config):
             hBRs.SetBinContent(4, fin_state_info['weight_to_sgn'])
 
             outfile.cd(f"{pt_key}/{fin_state}")
-            print(f"Writing hBRs for {pt_key}/{fin_state}/hBRs")
             hBRs.Write()
 
         hWeightsAnchorSignal = pt_corr_bkgs['hWeightsSummary']
         outfile.cd(pt_key)
-        print(f"Writing total histograms for {pt_key}")
         hWeightsAnchorSignal.Write()
     outfile.Close()
+
+def fill_smooth_histo(df, histo, n_points_for_sample, n_points_for_kde):
+
+    # Define the RooDataset corresponding to histogram range
+    x_min = histo.GetXaxis().GetXmin()
+    x_max = histo.GetXaxis().GetXmax()
+    x = RooRealVar("x", "x", x_min, x_max)
+    data = RooDataSet("data", "data", RooArgSet(x))
+
+    # Fill it from DataFrame
+    for i_val, val in enumerate(df['fM']):
+        if i_val > n_points_for_kde:
+            break
+        x.setVal(val)
+        data.add(RooArgSet(x))
+
+    # Build a RooKeysPdf (kernel smoothing)
+    keys_pdf = RooKeysPdf("keys", "keys", x, data, RooKeysPdf.NoMirror)
+    generated = keys_pdf.generate(RooArgSet(x), n_points_for_sample)
+
+    histo_smooth = histo.Clone(f"{histo.GetName()}")
+    histo_smooth.Reset("ICESM")
+    for i in range(int(generated.numEntries())):
+        val = generated.get(i).getRealValue("x")
+        histo_smooth.Fill(val)
+
+    histo_smooth.Scale(len(df) / histo_smooth.Integral())
+    return histo_smooth
 
 def produce_corr_bkgs_templs_histos(config, cutset_config):
 
@@ -176,10 +198,7 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
 
     ### Centrality selection
     _, (centMin, centMax) = get_centrality_bins(config["centrality"])
-    print(f"Applying centrality selection: {centMin} - {centMax}")
-    print(f"Initial number of candidates: {len(full_df)}")
     full_df = full_df.query(f"fCentrality >= {centMin} and fCentrality < {centMax}")
-    print(f"Number of candidates after centrality selection: {len(full_df)}")
     # pt-differential mass shifts
     shift = np.zeros(len(full_df))
     if cfg_corrbkgs.get('shift_mass_pt_diff'):
@@ -207,21 +226,29 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
                                                                                               cfg_cutset["score_FD"]["min"],
                                                                                               cfg_cutset["score_FD"]["max"])):
         pt_key = f"pt_{int(pt_min*10)}_{int(pt_max*10)}"
-        print(f"pt_key: {pt_key}")
         fit_data = fit_data_file.Get(f"{pt_key}/hMassData")
         histo_weights_dict = {}
         print(f"Processing pt bin: {pt_min} - {pt_max}")
         pt_bin_fit_cfg = config["ry_extraction"]["pt_bins"][ipt_bin]
         mass_min = pt_bin_fit_cfg['fit_range'][0]
         mass_max = pt_bin_fit_cfg['fit_range'][1]
-        try:
-            query_str = f"fPt >= {pt_min} and fPt < {pt_max} and fMlScore0 < {score_bkg_max} and fMlScore1 >= {score_fd_min} and fMlScore1 < {score_fd_max} and fM >= {mass_min} and fM < {mass_max}"
-            cutset_sel_df = full_df.query(query_str)
-        except Exception as e:
-            print(f"Exception in applying query with ML selections --> only mass and pt!")
-            query_str = f"fPt >= {pt_min} and fPt < {pt_max} and fM >= {mass_min} and fM < {mass_max}"
-            cutset_sel_df = full_df.query(query_str)
-        print(f"Number of candidates after cutset selection: {len(cutset_sel_df)}")
+        if cfg_corrbkgs.get('reweight_prompt_non_prompt'):
+            yield_prompt = len(full_df.query("fOriginMcRec == 1"))
+            yield_non_prompt = len(full_df.query("fOriginMcRec == 2"))
+            f_prompt_mc = yield_prompt / (yield_prompt + yield_non_prompt) if (yield_prompt + yield_non_prompt) > 0 else 0
+            f_non_prompt_mc = 1 - f_prompt_mc
+
+        query_str = f"fPt >= {pt_min} and fPt < {pt_max}"
+        cutset_sel_df = full_df.query(query_str)
+        print(f"Number of candidates after pt selection: {len(cutset_sel_df)}")
+
+        if cfg_corrbkgs.get('smear_sigma'):
+            mean = 0.0
+            print(f"Applying mass smearing with sigma = {cfg_corrbkgs['smear_sigma'][ipt_bin]} GeV/c^2")
+            cutset_sel_df.loc[:, "fM"] = cutset_sel_df["fM"] + np.random.normal(mean, 
+                                                                    cfg_corrbkgs['smear_sigma'][ipt_bin],
+                                                                    size=len(cutset_sel_df))
+
 
         for fin_state, fin_state_info in final_states.items():
             print(f"Processing final state: {fin_state}")
@@ -229,21 +256,39 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
             if not any(fin_state == name for name in final_states_to_include) and fin_state != sgn_fin_state:
                 continue
 
-            selected_df = cutset_sel_df.query(fin_state_info['query'])
-            print(f"Number of selected candidates for final state {fin_state}: {len(selected_df)}")
-            if len(selected_df) > 0:
+            channel_df = cutset_sel_df.query(fin_state_info['query'])
+            if len(channel_df) == 0:
+                continue
+
+            histo_channel = fit_data.Clone()
+            histo_channel.Reset('ICESM')
+            histo_channel.SetName("hMass")
+            for cand_mass in channel_df['fM']:
+                histo_channel.Fill(cand_mass)
+            
+            # Fill tree from DataFrame
+            histo_channel_smooth = None
+            if cfg_corrbkgs.get('smooth') and fin_state != sgn_fin_state:
+                histo_channel_smooth = fit_data.Clone()
+                histo_channel_smooth.Reset('ICESM')
+                histo_channel_smooth.SetName("hMass_smooth")
+                histo_channel_smooth = fill_smooth_histo(channel_df, histo_channel_smooth, cfg_corrbkgs['n_smooth_points'], cfg_corrbkgs['n_points_for_kde'])
+                print(f"Smoothed histogram for final state {fin_state} created, entries: {histo_channel_smooth.GetEntries()}.")
+
+            try:
+                query_ml_mass = f"fMlScore0 < {score_bkg_max} and fMlScore1 >= {score_fd_min} and fMlScore1 < {score_fd_max} and fM >= {mass_min} and fM < {mass_max}"
+                cutset_sel_df_mass = channel_df.query(query_ml_mass)
+            except Exception as e:
+                query_mass = f"fM >= {mass_min} and fM < {mass_max}"
+                cutset_sel_df_mass = channel_df.query(query_mass)
+
+            # print(f"Number of selected candidates for final state {fin_state}: {len(selected_df)}")
+            if len(cutset_sel_df_mass) > 0:
                 make_dir_root_file(f"{pt_key}/{fin_state}", outfile)
                 outfile.cd(f"{pt_key}/{fin_state}")
-
-                # Fill tree from DataFrame
-                histo_channel = fit_data.Clone()
-                histo_channel.Reset('ICESM')
-                histo_channel.SetName("hMass")
-                for cand_mass in selected_df['fM']:
-                    histo_channel.Fill(cand_mass)
-
                 outfile.cd(f"{pt_key}/{fin_state}")
-                histo_channel.Smooth(10)
+                if histo_channel_smooth is not None:
+                    histo_channel_smooth.Write()
                 histo_channel.Write()
                 hBRs = ROOT.TH1F("hBRs", "hBRs;Branching Ratio", 4, 0, 4)
                 hBRs.GetXaxis().SetBinLabel(1, "MC")
@@ -253,13 +298,19 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
                 br_pdg = fin_state_info['br_pdg']
                 hBRs.SetBinContent(2, br_pdg)
                 hBRs.GetXaxis().SetBinLabel(3, "Raw yield")
-                raw_yield = len(selected_df)
+                raw_yield = len(cutset_sel_df_mass)
                 hBRs.SetBinContent(3, raw_yield)
                 hBRs.GetXaxis().SetBinLabel(4, "RY * (PDG/MC)")
                 hBRs.SetBinContent(4, raw_yield * (br_pdg/br_mc))
-                print(f"Storing weight for final state {fin_state}: {raw_yield * (br_pdg/br_mc)}")
                 correct_abundance_wrt_sgn = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1)
-                histo_weights_dict[fin_state] = [raw_yield * correct_abundance_wrt_sgn * (br_pdg/br_mc), histo_channel]
+                if cfg_corrbkgs.get('reweight_prompt_non_prompt'):
+                    f_prompt_real = config['prompt_fraction']
+                    f_non_prompt_real = 1 - f_prompt_real
+                    sgn_yield = (yield_prompt * (f_prompt_real / f_prompt_mc) +
+                                 yield_non_prompt * (f_non_prompt_real / f_non_prompt_mc))
+                else:
+                    sgn_yield = raw_yield
+                histo_weights_dict[fin_state] = [sgn_yield * correct_abundance_wrt_sgn * (br_pdg/br_mc), histo_channel]
                 hBRs.Write()
 
         n_final_states = len(histo_weights_dict)
@@ -273,7 +324,6 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
         hWeightsAnchorSignal = ROOT.TH1F("hWeightsAnchorSignal", "hWeightsAnchorSignal", n_final_states, 0, n_final_states)
         total_signal_weight = 0
         for i_fin_state, (name, (weight, histo)) in enumerate(histo_weights_dict.items()):
-            print(f"Adding signal final state {name} with weight {weight}")
             if name == sgn_fin_state:
                 hMassSignal.Add(histo, weight)
                 total_signal_weight = weight
@@ -282,8 +332,6 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
             hWeightsAnchorSignal.GetXaxis().SetBinLabel(i_fin_state+1, name)
             hWeightsAnchorSignal.SetBinContent(i_fin_state+1, weight)
 
-        # Normalize weights histogram to the total signal weight
-        hWeightsAnchorSignal.Scale(1 / total_signal_weight)
 
         for i_fin_state, (name, (weight, histo)) in enumerate(histo_weights_dict.items()):
             histo.Scale(weight / total_signal_weight)
@@ -293,6 +341,9 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
         outfile.cd(pt_key)
         hMassSignal.Write()
         hMassTotalCorrBkgs.Write()
+        hWeightsAnchorSignal.Write("hWeights")
+        # Normalize weights histogram to the total signal weight
+        hWeightsAnchorSignal.Scale(1 / total_signal_weight)
         hWeightsAnchorSignal.Write()
 
     outfile.Close()

@@ -7,7 +7,6 @@ import argparse
 import numpy as np
 import yaml
 import os
-# import itertools
 from ROOT import TFile, TH1, TH1D, TH1F # pylint: disable=import-error,no-name-in-module
 script_dir = os.path.dirname(os.path.realpath(__file__))
 os.sys.path.append(os.path.join(script_dir, '..', 'utils'))
@@ -21,8 +20,6 @@ import uproot
 from hist import Hist
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # pylint: disable=wrong-import-position
 
-#from utils.kde_producer import kde_producer # TODO: add correlated backgrounds
-
 def get_corr_bkg_template(path, input_type, file_path):
     
     if input_type == 'Tree':
@@ -33,7 +30,12 @@ def get_corr_bkg_template(path, input_type, file_path):
     else:
         print(f"Getting corr bkg template from histogram {path}hMass in file {file_path}")
         file = TFile.Open(file_path, "READ")
-        hist = file.Get(f"{path}hMass")
+        try:
+            hist = file.Get(f"{path}hMass_smooth")
+            print(f"Using smoothed hist")
+        except Exception:
+            print(f"No smoothed hist found, getting original hist")
+            hist = file.Get(f"{path}hMass")
         hist.SetDirectory(0)
         return hist
 
@@ -122,7 +124,6 @@ def create_hist(pt_lims, contents, errors, label_pt=r"$p_\mathrm{T}~(\mathrm{GeV
 
     return histo
 
-# pylint: disable=too-many-arguments
 def add_info_on_canvas(axs, loc, system, pt_min, pt_max, fitter=None):
     """
     Helper method to add text on flarefly mass fit plot
@@ -161,6 +162,64 @@ def add_info_on_canvas(axs, loc, system, pt_min, pt_max, fitter=None):
     anchored_text = AnchoredText(text, loc=loc, frameon=False)
     axs.add_artist(anchored_text)
 
+def set_corr_bkgs(fitter, corr_bkgs_templs, sgn_bkgs_templs, cfg):
+
+    sgn_func_idx = len(cfg['sgn_func'])
+    bkg_func_idx = 0
+    for corr_bkg in cfg["corr_bkgs"]['channels']:
+        chn = corr_bkg['name']
+        if corr_bkg.get('sgn_func'):
+            if corr_bkg.get('fix_to'):
+                pdf_name = corr_bkg['fix_to']
+                frac = sgn_bkgs_templs[pdf_name]['frac']
+                sgn_func_idx = sgn_bkgs_templs[pdf_name]['idx']
+                print(f"Setting correlated bkg function {sgn_func_idx} fraction " \
+                      f"to {frac} wrt signal pdf no. {pdf_idx}")
+                fitter.fix_signal_frac_to_signal_pdf(sgn_func_idx, pdf_idx, frac)
+            else:
+                logger(f"Signal function for correlated bkg source {chn} will be free", level="WARNING")
+
+            sgn_func_idx += 1
+            continue
+
+        if corr_bkg.get('bkg_func'):
+            data_hdl = corr_bkgs_templs[chn]['data_hdl']
+            if corr_bkg['bkg_func'] != 'kde_grid' and corr_bkg['bkg_func'] != 'hist':
+                logger(f"Background function for correlated bkg source {chn} not 'kde_grid' or 'hist'", level="ERROR")
+
+            if corr_bkg['bkg_func'] == 'kde_grid':
+                print(f"Setting kde for source {chn}")
+                fitter.set_background_kde(bkg_func_idx, data_hdl)
+            else:
+                print(f"Setting histo for source {chn}")
+                fitter.set_background_template(bkg_func_idx, data_hdl)
+
+            if corr_bkg.get('fix_to'):
+                anchor_pdf_name = corr_bkg['fix_to']
+                print(f"\nanchor_pdf_name: {anchor_pdf_name}\n")
+                frac = corr_bkgs_templs[chn]['frac'] / corr_bkgs_templs[anchor_pdf_name]['frac']
+                pdf_idx = corr_bkgs_templs[anchor_pdf_name]['idx']
+                print(f"Setting correlated bkg template function {bkg_func_idx} fraction " \
+                      f"to {frac} wrt signal pdf no. {pdf_idx}")
+                if anchor_pdf_name == 'signal':
+                    fitter.fix_bkg_frac_to_signal_pdf(bkg_func_idx, pdf_idx, frac)
+                else:
+                    fitter.fix_bkg_frac_to_bkg_pdf(bkg_func_idx, pdf_idx, frac)
+
+            elif corr_bkg.get('init_to'):
+                pdf_name = corr_bkg['init_to']
+                idx = corr_bkgs_templs[pdf_name]['idx']
+                frac = corr_bkgs_templs[pdf_name]['frac']
+                if pdf_name == 'signal':
+                    frac_sgn = corr_bkgs_templs['signal']['frac']
+                    print(f"Setting correlated bkg template function {bkg_func_idx} initial fraction " \
+                        f"to {frac} wrt signal pdf no. {pdf_idx}")
+                    fitter.set_background_initpar(idx, "frac", frac/frac_sgn, limits=[0., 1.])
+            else:
+                logger(f"Background function for correlated bkg source {corr_bkg} without 'fix_to' or 'init_to' key", level="ERROR")
+            
+            bkg_func_idx += 1
+            continue
 
 def get_raw_yields(fitConfigFileName, inFileName):
     #______________________________________________________
@@ -176,19 +235,25 @@ def get_raw_yields(fitConfigFileName, inFileName):
     file_root.close()
 
     decay_channel = r"\pi^{\plus} K^{-} \pi^{\plus}"
-    particle_name = "Dplus"
+    particle_name = config_file["Dmeson"]
     pdg_id = 411
 
     # Store fit info
     raw_yields, raw_yields_unc = [], []
+    raw_yields_bin_counting, raw_yields_bin_counting_unc = [], []
     signif, signif_unc, s_over_b, s_over_b_unc = [], [], [], []
     means, means_unc, sigmas, sigmas_unc = [], [], [], []
+    dict_pars = {}
 
     # Open file with data projections
     infile = TFile(inFileName, "READ")
     corr_bkg_file_path = outfile_name.replace('rawyield', 'corrbkg')
 
+    pt_lims = []
     for ipt, (pt_bin_cfg) in enumerate(config_file['ry_extraction']['pt_bins']):
+        if ipt == 0:
+            pt_lims.append(pt_bin_cfg['pt_range'][0])
+        pt_lims.append(pt_bin_cfg['pt_range'][1])
         pt_min, pt_max = pt_bin_cfg['pt_range']
         print(f"Fitting pt bin: {pt_min} - {pt_max} GeV/c")
         pt_label = f"pt_{int(pt_min*10)}_{int(pt_max*10)}"
@@ -205,64 +270,80 @@ def get_raw_yields(fitConfigFileName, inFileName):
         sgn_functs = pt_bin_cfg['sgn_func'].copy()
         print(f"len(pt_bin_cfg['bkg_func']): {len(pt_bin_cfg['bkg_func'])}")
         label_bkg_pdf = []
-        label_signal_pdf = [rf"$\mathrm{{{particle_name}}}$ signal"]
+        if len(pt_bin_cfg['sgn_func']) > 1:
+            label_signal_pdf = pt_bin_cfg['sgn_func_labels']
+        else:
+            label_signal_pdf = [config_file['ry_extraction']['signal_label']]
+            # label_signal_pdf = [rf"$\mathrm{{{particle_name}}}$ signal"]
         print(f"\n\nUsing signal function: {sgn_functs} and background function: {bkg_functs}")
 
         # Add correlated bkg templates
-        corr_bkgs_templs, sgn_bkgs_templs = [], []
-        if pt_bin_cfg.get("incl_corr_bkgs"):
+        corr_bkgs_templs, sgn_bkgs_templs = {}, {}
+        if pt_bin_cfg.get("corr_bkgs"):
 
             # Get the fraction
             corr_bkg_file = TFile.Open(corr_bkg_file_path, 'read')
             pt_subdir = corr_bkg_file.Get(pt_label)
-            hist_fractions = pt_subdir.Get("hWeightsAnchorSignal")
+            hist_fractions = pt_subdir.Get("hWeights")
+            weights = {}
+            for i_bin in range(1, hist_fractions.GetNbinsX()+1):
+                weights[hist_fractions.GetXaxis().GetBinLabel(i_bin)] = hist_fractions.GetBinContent(i_bin)
             hist_fractions.SetDirectory(0)
             corr_bkg_file.Close()
-
-            sgn_fin_state = config_file["corr_bkgs"]["sgn_fin_state"]
-            axis = hist_fractions.GetXaxis()
-            for corr_bkg_source in pt_bin_cfg["incl_corr_bkgs"]:
-                print(f"\n\nFetching template for channel {corr_bkg_source}")
-
-                # find corresponding fraction
-                frac_to_sgn = next((hist_fractions.GetBinContent(i) for i in range(1, hist_fractions.GetNbinsX() + 1)
-                                    if axis.GetBinLabel(i) == corr_bkg_source), 0)
+            i_source_corr_bkg_sgn, i_source_corr_bkg_bkg = 0, 0
+            sgn_bkgs_templs['signal'] = {}
+            sgn_bkgs_templs['signal']['frac'] = weights[pt_bin_cfg["corr_bkgs"]['sgn_fin_state']]
+            sgn_bkgs_templs['signal']['idx'] = 0
+            corr_bkgs_templs['signal'] = {}
+            corr_bkgs_templs['signal']['frac'] = weights[pt_bin_cfg["corr_bkgs"]['sgn_fin_state']]
+            corr_bkgs_templs['signal']['idx'] = 0
+            for i_source, corr_bkg_source in enumerate(pt_bin_cfg["corr_bkgs"]["channels"]):
+                chn_name = corr_bkg_source['name']
 
                 # Use a signal function instead of a mc template
-                if any(corr_bkg_source == corr_bkg_source_func for corr_bkg_source_func in pt_bin_cfg.get('corr_bkgs_as_sgn_functs', [])):
-                    print(f"Using signal function for correlated bkg source {corr_bkg_source}")
-                    for i_func, corr_bkg_sgn_func in enumerate(pt_bin_cfg['corr_bkgs_sgn_functs']):
-                        sgn_functs.append(corr_bkg_sgn_func)
-                        sgn_bkgs_templs.append(frac_to_sgn)
-                    label_signal_pdf.append(rf"$\mathrm{{{corr_bkg_source}}}$")
+                if corr_bkg_source.get('sgn_func'):
+                    sgn_bkgs_templs[chn_name] = {}
+                    print(f"Using signal function for correlated bkg source {chn_name}")
+                    sgn_functs.append(corr_bkg_source['sgn_func'])
+                    sgn_bkgs_templs[chn_name]['frac'] = weights[chn_name]
+                    sgn_bkgs_templs[chn_name]['idx'] = i_source_corr_bkg_sgn + len(pt_bin_cfg['sgn_func'])
+                    label_signal_pdf.append(rf"$\mathrm{{{chn_name}}}$")
+                    i_source_corr_bkg_sgn += 1
                     continue
 
-                print(f"Using MC template for correlated bkg source {corr_bkg_source}")
+                print(f"Using MC template for correlated bkg source {chn_name}")
+                corr_bkgs_templs[chn_name] = {}
                 # Get the correlated bkg template (TTree or TH1)
-                corr_bkg_templ = get_corr_bkg_template(f"{pt_label}/{corr_bkg_source}/", config_file['input_type'], corr_bkg_file_path)
+                corr_bkg_templ = get_corr_bkg_template(f"{pt_label}/{chn_name}/", config_file['input_type'], corr_bkg_file_path)
                 if config_file['input_type'] == 'Tree':
                     df = tree.arrays(library="pd")
-                    corr_bkgs_templs.append([
-                        DataHandler(df, var_name="fM", limits=pt_bin_cfg["fit_range"],
-                                    nbins=100),
-                        frac_to_sgn
-                    ])
+                    corr_bkgs_templs[chn_name]['frac'] = weights[chn_name]
+                    corr_bkgs_templs[chn_name]['data_hdl'] = DataHandler(df, var_name="fM", limits=pt_bin_cfg["fit_range"], nbins=100)
                     bkg_functs.append("kde_grid")
                 else:
-                    corr_bkgs_templs.append([
-                        DataHandler(corr_bkg_templ, limits=pt_bin_cfg["fit_range"],
-                                    rebin=pt_bin_cfg.get('rebin', 1)),
-                        frac_to_sgn
-                    ])
+                    corr_bkgs_templs[chn_name]['frac'] = weights[chn_name]
+                    corr_bkgs_templs[chn_name]['data_hdl'] = DataHandler(corr_bkg_templ, limits=pt_bin_cfg["fit_range"], rebin=pt_bin_cfg.get('rebin', 1))
                     bkg_functs.append("hist")
 
-                label_bkg_pdf.append(corr_bkg_source)
+                corr_bkgs_templs[chn_name]['idx'] = i_source_corr_bkg_bkg
+                i_source_corr_bkg_bkg += 1
+                label_bkg_pdf.append(chn_name)
 
-        # sgn_functs = sgn_functs + pt_bin_cfg['sgn_func']
         label_bkg_pdf = label_bkg_pdf + ["Comb. bkg"]
         bkg_functs = bkg_functs + pt_bin_cfg['bkg_func']
         print(f"\n\ncorr_bkgs_templs: {corr_bkgs_templs}\n\n")
         print(f"Using signal function: {sgn_functs} and background function: {bkg_functs}")
+        
+        for label in label_signal_pdf:
+            # Account for different parameters in different pt bins
+            if label in dict_pars.keys():
+                continue
+            dict_pars[label] = {}
+        for label in label_bkg_pdf:
+            if label in dict_pars.keys():
+                continue
+            dict_pars[label] = {}
+
         fitter_pt = F2MassFitter(data_hdl,
                                  name_signal_pdf=sgn_functs,
                                  name_background_pdf=bkg_functs,
@@ -274,26 +355,11 @@ def get_raw_yields(fitConfigFileName, inFileName):
         # Set reflection template
         print(f"len(pt_bin_cfg['bkg_func']): {len(pt_bin_cfg['bkg_func'])}")
         sgn_func_idx = pt_bin_cfg.get("sgn_func_idx", 0)  # Assuming first signal function is the main signal
-        if pt_bin_cfg.get("incl_corr_bkgs"):
-            # Fix the fractions for templates modelled with MC (background functions)
-            for i_fin_state, (corr_bkg_templ, frac_to_sgn) in enumerate(corr_bkgs_templs):
-                print(f"Setting correlated bkg {i_fin_state} fraction " \
-                      f"to {frac_to_sgn} wrt signal pdf no. {sgn_func_idx}")
-                if isinstance(data_pt, TH1):
-                    fitter_pt.set_background_template(i_fin_state, corr_bkg_templ)
-                else:
-                    fitter_pt.set_background_kde(i_fin_state, corr_bkg_templ)
-                fitter_pt.fix_bkg_frac_to_signal_pdf(i_fin_state, sgn_func_idx, frac_to_sgn)
-
-            # Fix the fractions for templates modelled with functions (signal functions)
-            for i_func, frac_to_sgn in enumerate(sgn_bkgs_templs):
-                print(f"Setting correlated bkg function {i_func+len(pt_bin_cfg['sgn_func'])} fraction " \
-                      f"to {frac_to_sgn} wrt signal pdf no. {sgn_func_idx}")
-                fitter_pt.fix_signal_frac_to_signal_pdf(i_func+len(pt_bin_cfg['sgn_func']), sgn_func_idx, frac_to_sgn)
-
-        fitter_pt.set_signal_initpar(sgn_func_idx, "frac", 0.2, limits=[0., 1.])
+        if pt_bin_cfg.get("corr_bkgs"):
+            set_corr_bkgs(fitter_pt, corr_bkgs_templs, sgn_bkgs_templs, pt_bin_cfg)
         if pt_bin_cfg.get("init_pars"):
             set_fitter_init_pars(fitter_pt, pt_bin_cfg["init_pars"], pt_min, pt_max, len(bkg_functs))
+        fitter_pt.set_signal_initpar(sgn_func_idx, "frac", 0.2, limits=[0., 1.])
         result = fitter_pt.mass_zfit()
 
         if result.converged:
@@ -309,12 +375,18 @@ def get_raw_yields(fitConfigFileName, inFileName):
                                                    figsize=(8, 8),
                                                    axis_title=rf"$M(\mathrm{{{decay_channel}}})$ (GeV/$c^2$)")
 
+            fig_pulls = fitter_pt.plot_std_residuals(style="ATLAS",
+                                                   figsize=(8, 8),
+                                                   axis_title=rf"$M(\mathrm{{{decay_channel}}})$ (GeV/$c^2$)")
+
             outdir = os.path.join(os.path.dirname(os.path.dirname(inFileName)), 'rawyields')
             print(f"Saving figures in {outdir}")
             fig.savefig(os.path.join(outdir, f"{particle_name}_mass_{pt_label}.pdf"))
             fig_res.savefig(os.path.join(outdir, f"{particle_name}_massres_{pt_label}.pdf"))
+            fig_pulls.savefig(os.path.join(outdir, f"{particle_name}_masspulls_{pt_label}.pdf"))
 
             rawy, rawy_unc = fitter_pt.get_raw_yield(0)
+            rawy_bc, rawy_unc_bc = fitter_pt.get_raw_yield_bincounting(0)
             sign, sign_unc = fitter_pt.get_significance(0)
             soverb, soverb_unc = fitter_pt.get_signal_over_background(0)
             mean, mean_unc = fitter_pt.get_signal_parameter(0, "mu")
@@ -322,6 +394,8 @@ def get_raw_yields(fitConfigFileName, inFileName):
 
             raw_yields.append(rawy)
             raw_yields_unc.append(rawy_unc)
+            raw_yields_bin_counting.append(rawy_bc)
+            raw_yields_bin_counting_unc.append(rawy_unc_bc)
             signif.append(sign)
             signif_unc.append(sign_unc)
             s_over_b.append(soverb)
@@ -331,15 +405,40 @@ def get_raw_yields(fitConfigFileName, inFileName):
             sigmas.append(sigma)
             sigmas_unc.append(sigma_unc)
 
+            signal_pars = fitter_pt.get_signal_pars()
+            signal_pars_uncs = fitter_pt.get_signal_pars_uncs()
+            for i_label, label in enumerate(label_signal_pdf):
+                for (par_name, val), (par_name, unc) in zip(signal_pars[i_label].items(), signal_pars_uncs[i_label].items()):
+                    if par_name not in dict_pars[label].keys():
+                        dict_pars[label][f'{par_name}'] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
+                        dict_pars[label][f'{par_name}_uncs'] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
+
+                    dict_pars[label][f'{par_name}'][ipt] = val
+                    dict_pars[label][f'{par_name}_uncs'][ipt] = unc
+
+            bkg_pars = fitter_pt.get_bkg_pars()
+            bkg_pars_uncs = fitter_pt.get_bkg_pars_uncs()
+            for i_label, label in enumerate(label_bkg_pdf):
+                for (par_name, val), (par_name, unc) in zip(bkg_pars[i_label].items(), bkg_pars_uncs[i_label].items()):
+                    if par_name not in dict_pars[label].keys():
+                        dict_pars[label][f'{par_name}'] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
+                        dict_pars[label][f'{par_name}_uncs'] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
+
+                    dict_pars[label][f'{par_name}'][ipt] = val
+                    dict_pars[label][f'{par_name}_uncs'][ipt] = unc
+
             fitter_pt.dump_to_root(outfile_name, option="update", suffix=f"_{pt_label}")
 
     file_root = uproot.update(outfile_name)
-    pt_lims = config_file['ptbins']
     file_root["h_rawyields"] = create_hist(pt_lims, raw_yields, raw_yields_unc)
+    file_root["h_rawyields_bin_counting"] = create_hist(pt_lims, raw_yields_bin_counting, raw_yields_bin_counting_unc)
     file_root["h_significance"] = create_hist(pt_lims, signif, signif_unc)
     file_root["h_soverb"] = create_hist(pt_lims, s_over_b, s_over_b_unc)
-    file_root["h_means"] = create_hist(pt_lims, means, means_unc)
-    file_root["h_sigmas"] = create_hist(pt_lims, sigmas, sigmas_unc)
+    for func in dict_pars.keys():
+        for par_name, par_vals_uncs in dict_pars[func].items():
+            if par_name.endswith('_uncs'):
+                continue
+            file_root[f"h_{func}_{par_name}"] = create_hist(pt_lims, dict_pars[func][par_name], dict_pars[func][f'{par_name}_uncs'])
     file_root.close()
 
 if __name__ == "__main__":
