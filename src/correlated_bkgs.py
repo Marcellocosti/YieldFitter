@@ -44,17 +44,42 @@ def produce_corr_bkgs_templs_trees(config, cutset_config):
     full_df = full_df.query(f"fCentrality >= {centMin} and fCentrality < {centMax}")
     
     # pt-differential mass shifts
-    shift = np.zeros(len(full_df))
-    if cfg_corrbkgs.get('shift_mass_pt_diff'):
+    shifts = np.zeros(len(full_df))
+    if cfg_corrbkgs.get('shift_mass'):
         if isinstance(cfg_corrbkgs["shift_mass"], float):
             shift_values = [cfg_corrbkgs["shift_mass"]] * len(cfg_cutset["Pt"]["min"])
-        else:
+        elif isinstance(cfg_corrbkgs["shift_mass"], list):
             shift_values = cfg_corrbkgs["shift_mass"]
+        else:
+            logger(f"Taking mass shifts from {cfg_corrbkgs['shift_mass']}", "INFO")
+            shifts_file = ROOT.TFile(cfg_corrbkgs['shift_mass'], "READ")
+            shifts_histo = shifts_file.Get("delta_mean_data_mc")
+            for i_bin in range(1, shifts_histo.GetNbinsX()+1):
+                shift_values.append(shifts_histo.GetBinContent(i_bin))
         for ptmin, ptmax, pt_diff_shift in zip(cfg_cutset["Pt"]["min"], cfg_cutset["Pt"]["max"], shift_values):
-            mask = (full_df["pt"] >= ptmin) & (full_df["pt"] < ptmax)
-            shift[mask] = pt_diff_shift
+            mask = (full_df["fPt"] >= ptmin) & (full_df["fPt"] < ptmax)
+            shifts[mask] = pt_diff_shift
 
-    full_df.loc[:, "fM"] = full_df["fM"] + shift
+    full_df.loc[:, "fM"] = full_df["fM"] + shifts
+
+    # pt-differential mass shifts
+    smears = np.zeros(len(full_df))
+    if cfg_corrbkgs.get('smear_mass'):
+        if isinstance(cfg_corrbkgs["smear_mass"], float):
+            smear_values = [cfg_corrbkgs["smear_mass"]] * len(cfg_cutset["Pt"]["min"])
+        elif isinstance(cfg_corrbkgs["smear_mass"], list):
+            smear_values = cfg_corrbkgs["smear_mass"]
+        else:
+            logger(f"Taking mass shifts from {cfg_corrbkgs['smear_mass']}", "INFO")
+            smear_file = ROOT.TFile(cfg_corrbkgs['smear_mass'], "READ")
+            smear_histo = smear_file.Get("delta_mean_data_mc")
+            for i_bin in range(1, smear_histo.GetNbinsX()+1):
+                smear_values.append(smear_histo.GetBinContent(i_bin))
+        for ptmin, ptmax, pt_diff_smear in zip(cfg_cutset["Pt"]["min"], cfg_cutset["Pt"]["max"], smear_values):
+            mask = (full_df["fPt"] >= ptmin) & (full_df["fPt"] < ptmax)
+            smears[mask] = pt_diff_smear
+
+    full_df.loc[:, "fM"] = full_df["fM"] + smears
 
     # Process corr bkgs channels
     final_states_to_include = cfg_corrbkgs["include_final_states"]
@@ -199,18 +224,53 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
     ### Centrality selection
     _, (centMin, centMax) = get_centrality_bins(config["centrality"])
     full_df = full_df.query(f"fCentrality >= {centMin} and fCentrality < {centMax}")
+
     # pt-differential mass shifts
-    shift = np.zeros(len(full_df))
-    if cfg_corrbkgs.get('shift_mass_pt_diff'):
+    shifts = np.zeros(len(full_df))
+    shift_values = []
+    if cfg_corrbkgs.get('shift_mass'):
         if isinstance(cfg_corrbkgs["shift_mass"], float):
             shift_values = [cfg_corrbkgs["shift_mass"]] * len(cfg_cutset["Pt"]["min"])
-        else:
+        elif isinstance(cfg_corrbkgs["shift_mass"], list):
             shift_values = cfg_corrbkgs["shift_mass"]
+        else:
+            logger(f"Taking mass shifts from {cfg_corrbkgs['shift_mass']}", "INFO")
+            shifts_file = ROOT.TFile(cfg_corrbkgs['shift_mass'], "READ")
+            shifts_histo = shifts_file.Get("delta_mean_data_mc")
+            for i_bin in range(1, shifts_histo.GetNbinsX()+1):
+                shift_values.append(shifts_histo.GetBinContent(i_bin))
+            shifts_histo.SetDirectory(0)
+            shifts_file.Close()
         for ptmin, ptmax, pt_diff_shift in zip(cfg_cutset["Pt"]["min"], cfg_cutset["Pt"]["max"], shift_values):
-            mask = (full_df["pt"] >= ptmin) & (full_df["pt"] < ptmax)
-            shift[mask] = pt_diff_shift
+            mask = (full_df["fPt"] >= ptmin) & (full_df["fPt"] < ptmax)
+            shifts[mask] = pt_diff_shift
 
-    full_df.loc[:, "fM"] = full_df["fM"] + shift
+    full_df.loc[:, "fM"] = full_df["fM"] + shifts
+
+    # pt-differential mass smearing
+    smears = np.zeros(len(full_df))
+    smear_values = []
+    if cfg_corrbkgs.get('smear_mass'):
+        if isinstance(cfg_corrbkgs["smear_mass"], float):
+            smear_values = [cfg_corrbkgs["smear_mass"]] * len(cfg_cutset["Pt"]["min"])
+        elif isinstance(cfg_corrbkgs["smear_mass"], list):
+            smear_values = cfg_corrbkgs["smear_mass"]
+        else:
+            logger(f"Taking mass shifts from {cfg_corrbkgs['smear_mass']}", "INFO")
+            smear_file = ROOT.TFile(cfg_corrbkgs['smear_mass'], "READ")
+            smear_histo = smear_file.Get("delta_sigma_data_mc")
+            for i_bin in range(1, smear_histo.GetNbinsX()+1):
+                smear_values.append(smear_histo.GetBinContent(i_bin))
+            smear_histo.SetDirectory(0)
+            smear_file.Close()
+        for ptmin, ptmax, pt_diff_smear in zip(cfg_cutset["Pt"]["min"], cfg_cutset["Pt"]["max"], smear_values):
+            if pt_diff_smear <= 0: # continue, MC is broader than data
+                logger(f"Skipping smearing for pt bin {ptmin}-{ptmax} since smear value is negative = {pt_diff_smear}", "INFO")
+                continue
+            mask = (full_df["fPt"] >= ptmin) & (full_df["fPt"] < ptmax)
+            smears[mask] = np.random.normal(0.0, pt_diff_smear, size=mask.sum())
+
+    full_df.loc[:, "fM"] = full_df["fM"] + smears
 
     # Process corr bkgs channels
     final_states_to_include = cfg_corrbkgs["include_final_states"]
@@ -241,14 +301,6 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
         query_str = f"fPt >= {pt_min} and fPt < {pt_max}"
         cutset_sel_df = full_df.query(query_str)
         print(f"Number of candidates after pt selection: {len(cutset_sel_df)}")
-
-        if cfg_corrbkgs.get('smear_sigma'):
-            mean = 0.0
-            print(f"Applying mass smearing with sigma = {cfg_corrbkgs['smear_sigma'][ipt_bin]} GeV/c^2")
-            cutset_sel_df.loc[:, "fM"] = cutset_sel_df["fM"] + np.random.normal(mean, 
-                                                                    cfg_corrbkgs['smear_sigma'][ipt_bin],
-                                                                    size=len(cutset_sel_df))
-
 
         for fin_state, fin_state_info in final_states.items():
             print(f"Processing final state: {fin_state}")
@@ -302,7 +354,9 @@ def produce_corr_bkgs_templs_histos(config, cutset_config):
                 hBRs.SetBinContent(3, raw_yield)
                 hBRs.GetXaxis().SetBinLabel(4, "RY * (PDG/MC)")
                 hBRs.SetBinContent(4, raw_yield * (br_pdg/br_mc))
-                correct_abundance_wrt_sgn = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1)
+                correct_abundance_wrt_sgn = 1
+                if cfg_corrbkgs.get('correct_abundances'):
+                    correct_abundance_wrt_sgn = fin_state_info.get(f"abundance_to_{config['Dmeson']}", 1)
                 if cfg_corrbkgs.get('reweight_prompt_non_prompt'):
                     f_prompt_real = config['prompt_fraction']
                     f_non_prompt_real = 1 - f_prompt_real

@@ -21,10 +21,8 @@ def get_data_to_fit(inFileName, pt_dir, input_type):
     if input_type == "Sparse":
         infile = TFile.Open(inFileName, "READ")
         data_to_fit_pt = infile.Get(f"{pt_dir}/hMassData")
-        print(f"type of data_to_fit_pt: {type(data_to_fit_pt)}")
         data_to_fit_pt.SetDirectory(0) 
         infile.Close()
-        print(f"type of data_to_fit_pt: {type(data_to_fit_pt)}")
     elif input_type == "Tree":
         with uproot.open(inFileName) as infile:
             data_to_fit_pt_tree = infile[f"{pt_dir}/treeMassData"]

@@ -28,18 +28,16 @@ def get_corr_bkg_template(path, input_type, file_path):
             tree = f[f"{path}treeMass"]
         return tree
     else:
-        print(f"Getting corr bkg template from histogram {path}hMass in file {file_path}")
         file = TFile.Open(file_path, "READ")
-        try:
-            hist = file.Get(f"{path}hMass_smooth")
-            print(f"Using smoothed hist")
-        except Exception:
-            print(f"No smoothed hist found, getting original hist")
+        print(f"Getting corr bkg template from histogram {path}hMass_smooth in file {file_path}")
+        hist = file.Get(f"{path}hMass_smooth")
+        if not isinstance(hist, TH1):
+            logger(f"---> No smoothed hist found, getting only hMass", "WARNING")
             hist = file.Get(f"{path}hMass")
         hist.SetDirectory(0)
         return hist
 
-def set_fitter_init_pars(fitter, cfg, pt_min, pt_max, n_bkg_functs):
+def set_fitter_init_pars(ipt, full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs):
     print(f"Setting fitter initial parameters for pt range {pt_min} - {pt_max} GeV/c")
 
     if cfg.get("fix_pars_sgn"):
@@ -77,6 +75,7 @@ def set_fitter_init_pars(fitter, cfg, pt_min, pt_max, n_bkg_functs):
     if cfg.get("fix_sgn_from_file"):
         # Initialization from MC fits from file
         for setting in cfg["fix_sgn_from_file"]:
+            print("\n\n")
             sgn_func_idx = setting[0]
             par_names = setting[1]
             file_pars = setting[2]
@@ -84,14 +83,58 @@ def set_fitter_init_pars(fitter, cfg, pt_min, pt_max, n_bkg_functs):
             par_file = TFile.Open(file_pars, "READ")
             for par_name in par_names:
                 try:
+                    # print(f"    Getting histo hist_{par_name} ... ")
                     histo_par = par_file.Get(f"hist_{par_name}")
+                    # print(f"histo_par: {histo_par}")
                     for i_bin in range(histo_par.GetNbinsX()+1):
                         bin_center = histo_par.GetBinCenter(i_bin)
                         if bin_center > pt_min and bin_center < pt_max:
                             par_val = histo_par.GetBinContent(i_bin)
                             break
 
-                    print(f"---> fixing signal parameter {par_name} to value {par_val}")
+                    # Shift the mean or add smearing to compensate data-MC discrepancies
+                    # no sgn_func_idx == 0 as this is only for corr bkgs
+                    shift, smear = 0.0, 0.0
+                    # print(f"About to smear ... ")
+                    if full_cfg.get('corr_bkgs') and sgn_func_idx != 0:
+                        # print(f"About to smear 1 ... ")
+                        cfg_corrbkgs = full_cfg['corr_bkgs']
+                        print(f"par_name: {par_name}")
+                        if cfg_corrbkgs.get('shift_mass') and 'mu' in par_name:
+                            # print(f"About to smear 2 ... ")
+                            if isinstance(cfg_corrbkgs["shift_mass"], float):
+                                # print(f"About to smear 3 ... ")
+                                shift = cfg_corrbkgs["shift_mass"]
+                            elif isinstance(cfg_corrbkgs["shift_mass"], list):
+                                # print(f"About to smear 4 ... ")
+                                shift = cfg_corrbkgs["shift_mass"][ipt]
+                            else:
+                                # logger(f"Taking mass shifts from {cfg_corrbkgs['shift_mass']}", "INFO")
+                                # print(f"Taking mass shifts from {cfg_corrbkgs['shift_mass']}")
+                                shifts_file = TFile.Open(cfg_corrbkgs['shift_mass'], "READ")
+                                # print(f"shifts_file: {shifts_file}")
+                                shifts_histo = shifts_file.Get("delta_mean_data_mc")
+                                # print(f"shifts_histo: {shifts_histo}")
+                                shifts_histo.SetDirectory(0)
+                                shift = shifts_histo.GetBinContent(ipt+1)
+                                shifts_file.Close()
+                            # print(f"Shifting mass by {shift} GeV/c^2")
+                            par_val += shift
+                        if cfg_corrbkgs.get('smear_sigma') and 'sigma' in par_name:
+                            if isinstance(cfg_corrbkgs["smear_mass"], float):
+                                smear = cfg_corrbkgs["smear_mass"]
+                            elif isinstance(cfg_corrbkgs["smear_mass"], list):
+                                smear = cfg_corrbkgs["smear_mass"][ipt]
+                            else:
+                                logger(f"Taking mass shifts from {cfg_corrbkgs['smear_mass']}", "INFO")
+                                smear_file = TFile.Open(cfg_corrbkgs['smear_mass'], "READ")
+                                smear_histo = smear_file.Get("delta_sigma_data_mc")
+                                smear_histo.SetDirectory(0)
+                                smear = smear_histo.GetBinContent(ipt+1)
+                                smear_file.Close()
+                            # print(f"Smearing sigma by {smear} GeV/c^2")
+                            par_val += smear
+                    print(f"---> fixing signal parameter {par_name} to value {par_val}, shift {shift}, smear {smear}")
                     fitter.set_signal_initpar(sgn_func_idx, par_name, par_val, fix=True)
                     
                 except Exception as e:
@@ -199,11 +242,13 @@ def set_corr_bkgs(fitter, corr_bkgs_templs, sgn_bkgs_templs, cfg):
                 print(f"\nanchor_pdf_name: {anchor_pdf_name}\n")
                 frac = corr_bkgs_templs[chn]['frac'] / corr_bkgs_templs[anchor_pdf_name]['frac']
                 pdf_idx = corr_bkgs_templs[anchor_pdf_name]['idx']
-                print(f"Setting correlated bkg template function {bkg_func_idx} fraction " \
-                      f"to {frac} wrt signal pdf no. {pdf_idx}")
                 if anchor_pdf_name == 'signal':
+                    print(f"Setting correlated bkg template function {bkg_func_idx} fraction " \
+                          f"to {frac} wrt signal pdf no. {pdf_idx}")
                     fitter.fix_bkg_frac_to_signal_pdf(bkg_func_idx, pdf_idx, frac)
                 else:
+                    print(f"Setting correlated bkg template function {bkg_func_idx} fraction " \
+                          f"to {frac} wrt bkg pdf no. {pdf_idx}")
                     fitter.fix_bkg_frac_to_bkg_pdf(bkg_func_idx, pdf_idx, frac)
 
             elif corr_bkg.get('init_to'):
@@ -243,6 +288,7 @@ def get_raw_yields(fitConfigFileName, inFileName):
     raw_yields_bin_counting, raw_yields_bin_counting_unc = [], []
     signif, signif_unc, s_over_b, s_over_b_unc = [], [], [], []
     means, means_unc, sigmas, sigmas_unc = [], [], [], []
+    chi2_fits, chi2_over_ndf_fits = [], []
     dict_pars = {}
 
     # Open file with data projections
@@ -358,7 +404,7 @@ def get_raw_yields(fitConfigFileName, inFileName):
         if pt_bin_cfg.get("corr_bkgs"):
             set_corr_bkgs(fitter_pt, corr_bkgs_templs, sgn_bkgs_templs, pt_bin_cfg)
         if pt_bin_cfg.get("init_pars"):
-            set_fitter_init_pars(fitter_pt, pt_bin_cfg["init_pars"], pt_min, pt_max, len(bkg_functs))
+            set_fitter_init_pars(ipt, config_file, fitter_pt, pt_bin_cfg["init_pars"], pt_min, pt_max, len(bkg_functs))
         fitter_pt.set_signal_initpar(sgn_func_idx, "frac", 0.2, limits=[0., 1.])
         result = fitter_pt.mass_zfit()
 
@@ -376,8 +422,8 @@ def get_raw_yields(fitConfigFileName, inFileName):
                                                    axis_title=rf"$M(\mathrm{{{decay_channel}}})$ (GeV/$c^2$)")
 
             fig_pulls = fitter_pt.plot_std_residuals(style="ATLAS",
-                                                   figsize=(8, 8),
-                                                   axis_title=rf"$M(\mathrm{{{decay_channel}}})$ (GeV/$c^2$)")
+                                                     figsize=(8, 8),
+                                                     axis_title=rf"$M(\mathrm{{{decay_channel}}})$ (GeV/$c^2$)")
 
             outdir = os.path.join(os.path.dirname(os.path.dirname(inFileName)), 'rawyields')
             print(f"Saving figures in {outdir}")
@@ -391,6 +437,8 @@ def get_raw_yields(fitConfigFileName, inFileName):
             soverb, soverb_unc = fitter_pt.get_signal_over_background(0)
             mean, mean_unc = fitter_pt.get_signal_parameter(0, "mu")
             sigma, sigma_unc = fitter_pt.get_signal_parameter(0, "sigma")
+            chi2 = fitter_pt.get_chi2()
+            ndf = fitter_pt.get_ndf()
 
             raw_yields.append(rawy)
             raw_yields_unc.append(rawy_unc)
@@ -404,6 +452,8 @@ def get_raw_yields(fitConfigFileName, inFileName):
             means_unc.append(mean_unc)
             sigmas.append(sigma)
             sigmas_unc.append(sigma_unc)
+            chi2_fits.append(chi2)
+            chi2_over_ndf_fits.append(chi2/ndf)
 
             signal_pars = fitter_pt.get_signal_pars()
             signal_pars_uncs = fitter_pt.get_signal_pars_uncs()
@@ -434,6 +484,8 @@ def get_raw_yields(fitConfigFileName, inFileName):
     file_root["h_rawyields_bin_counting"] = create_hist(pt_lims, raw_yields_bin_counting, raw_yields_bin_counting_unc)
     file_root["h_significance"] = create_hist(pt_lims, signif, signif_unc)
     file_root["h_soverb"] = create_hist(pt_lims, s_over_b, s_over_b_unc)
+    file_root["h_chi2_fits"] = create_hist(pt_lims, chi2_fits, [0.]*len(chi2_fits))
+    file_root["h_chi2_over_ndf_fits"] = create_hist(pt_lims, chi2_over_ndf_fits, [0.]*len(chi2_over_ndf_fits))
     for func in dict_pars.keys():
         for par_name, par_vals_uncs in dict_pars[func].items():
             if par_name.endswith('_uncs'):

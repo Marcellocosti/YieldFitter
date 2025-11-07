@@ -1,4 +1,3 @@
-############## CONFIG FOR PP REFERENCE
 final_states = {
     "DplusToPiKPi": {
       "query": "abs(fFlagMcMatchRec) == 1",
