@@ -105,9 +105,12 @@ def get_particle_info(particleName):
             float, the mass of the particle
     '''
 
+    particleTit, massAxisTit, decay, massForFit, massSecPeak, secPeakLabel = None, None, None, None, None, None
+
     if particleName == 'Dplus':
         particleTit = 'D^{+}'
-        massAxisTit = '#it{M}(K#pi#pi) (GeV/#it{c}^{2})'
+        massAxisTit = r"$M(\mathrm{\pi^+ K^- \pi^+})\ \mathrm{(GeV/}c^2)$"
+        # massAxisTit = rf"$M(\mathrm{K^{-}pi^{+}#pi^{+}})$ (GeV/$c^2$)" #'#it{M}(K#pi#pi) (GeV/#it{c}^{2})'
         massForFit = ROOT.TDatabasePDG.Instance().GetParticle(411).Mass()
         decay = 'D^{+} #rightarrow K^{#minus}#pi^{+}#pi^{+}'
         massSecPeak = ROOT.TDatabasePDG.Instance().GetParticle(413).Mass() # D* mass
@@ -150,7 +153,7 @@ def get_particle_info(particleName):
         print(f'ERROR: the particle "{particleName}" is not supported! Choose between Dzero, Dplus, Ds, Dstar, and Lc. Exit!')
         sys.exit()
 
-    return particleTit, massAxisTit, decay, massForFit, massSecPeak if 'massSecPeak' in locals() else None, secPeakLabel if 'secPeakLabel' in locals() else None
+    return particleTit, massAxisTit, decay, massForFit, massSecPeak, secPeakLabel
 
 def check_file_exists(file_path):
     '''
