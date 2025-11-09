@@ -55,7 +55,7 @@ def compute_eff(config, inputFile, batch=False):
     - inputFile: input file with histograms
     - batch: run in batch mode
     '''
-
+    print(f"Computing efficiencies from {inputFile}")
     #_____________________________________________________________________________________
     # Set batch mode
     gROOT.SetBatch(batch)
@@ -63,7 +63,7 @@ def compute_eff(config, inputFile, batch=False):
     #_____________________________________________________________________________________
     # Load input files
     infile = ROOT.TFile.Open(inputFile)
-    ptBins = config['ptbins']
+    ptBins = config['ry_setup']['pt_range']
     nPtBins = len(ptBins)
 
     #_____________________________________________________________________________________
@@ -138,9 +138,8 @@ def compute_eff(config, inputFile, batch=False):
 
     #_____________________________________________________________________________________
     # Save output
-    outFileName = os.path.join(os.path.dirname(os.path.dirname(inputFile)),
-                               'effs',
-                               os.path.basename(inputFile).replace('proj', 'eff'))
+    outFileName = inputFile.replace('proj', 'eff')
+    print(f'Saving efficiencies to {outFileName}')
     os.makedirs(os.path.dirname(outFileName), exist_ok=True)
     outFile = TFile(outFileName, 'recreate')
     hEffPrompt.Write()
@@ -167,7 +166,7 @@ if __name__ == "__main__":
     # Read configuration file
     with open(args.config, 'r', encoding='utf8') as ymlconfig:
         config = yaml.load(ymlconfig, yaml.FullLoader)
-
+    print(f"Configuration file {args.config} loaded")
     compute_eff(
             config=config,
             inputFile=args.infileName,

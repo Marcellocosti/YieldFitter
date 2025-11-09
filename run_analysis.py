@@ -5,6 +5,7 @@ import yaml
 import concurrent.futures
 import time
 import subprocess
+import copy
 # from concurrent.futures import ProcessPoolExecutor
 work_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f"{work_dir}/utils")
@@ -20,17 +21,18 @@ paths = {
 	"GetRawYields": os.path.join(work_dir, "./src/get_raw_yields.py"),
 	"CutVariation": os.path.join(work_dir, "./src/cut_variation.py"),
 	"DataDrivenFraction": os.path.join(work_dir, "./src/data_driven_fraction.py"),
+	"ResultsMerger": os.path.join(work_dir, "./src/results_merger.py"),
 }
 
-def make_yaml(config, outdir, correlated=False):
+def make_yaml(config, outdir, cfg_type):
 	logger("YAML file will be created", level="INFO")
-	check_dir(f"{outdir}/cutsets")
+	# check_dir(f"{outdir}/cutsets")
 
-	cmd = (f'python3 {paths["YamlCuts"]} {config} -o {outdir}')
+	cmd = (f'python3 {paths["YamlCuts"]} {config} -o {outdir} -cfg_type {cfg_type}')
 	logger(f"{cmd}", level="COMMAND")
 	os.system(cmd)
 
-def produce_corr_bkgs_templs(config, outdir, nworkers, mCutSets, smooth):
+def produce_corr_bkgs_templs(config, outdir, nworkers=1, mCutSets=-1):
 	logger("Correlated backgrounds will be evaluated", level="INFO")
 	os.makedirs(f"{outdir}/corrbkgs", exist_ok=True)
 	print(f"Config: {config}")
@@ -49,10 +51,11 @@ def produce_corr_bkgs_templs(config, outdir, nworkers, mCutSets, smooth):
 	with concurrent.futures.ThreadPoolExecutor(max_workers=nworkers) as executor:
 		results_corr_bkgs = list(executor.map(run_corr_bkgs, range(mCutSets)))
 
-def project(config, outdir, nworkers, mCutSets):
+def project(config, outdir, nworkers=1, mCutSets=-1):
 	logger("Projections will be performed", level="INFO")
-	os.makedirs(f"{outdir}/projs", exist_ok=True)
 
+	# For cut variation, we create a directory for projections
+	os.makedirs(f"{outdir}/projs", exist_ok=True)
 	def run_projections(i):
 		"""Run sparse projection for a given cutset index."""
 		iCutSets = f"{i:02d}"
@@ -68,9 +71,8 @@ def project(config, outdir, nworkers, mCutSets):
 	with concurrent.futures.ThreadPoolExecutor(max_workers=nworkers) as executor:
 		results_proj = list(executor.map(run_projections, range(mCutSets)))
 
-def efficiencies(config, outdir, nworkers, mCutSets):
+def efficiencies(config, outdir, nworkers=1, mCutSets=-1):
 	logger("Efficiencies will be computed", level="INFO")
-	check_dir(f"{outdir}/effs")
 
 	def run_efficiency(i):
 		"""Run efficiency computation for a given cutset index."""
@@ -87,9 +89,8 @@ def efficiencies(config, outdir, nworkers, mCutSets):
 	with concurrent.futures.ThreadPoolExecutor(max_workers=nworkers) as executor:
 		results_eff = list(executor.map(run_efficiency, range(mCutSets)))
 
-def get_raw_yields(config, outdir, nworkers, mCutSets):
+def get_raw_yields(config, outdir, nworkers=1, mCutSets=-1):
 	logger("Mass fits will be performed", level="INFO")
-	check_dir(f"{outdir}/rawyields")
 
 	def run_fit(i):
 		"""Run simultaneous fit for a given cutset index."""
@@ -107,7 +108,7 @@ def get_raw_yields(config, outdir, nworkers, mCutSets):
 		results_fit = list(executor.map(run_fit, range(mCutSets)))
 
 def cut_variation(config, outdir, operations=None):
-	check_dir(f"{outdir}/cutVar")
+	# check_dir(f"{outdir}/cutVar")
 
 	logger("Cut variation will be performed", level="INFO")
 
@@ -122,10 +123,10 @@ def cut_variation(config, outdir, operations=None):
 
 def data_driven_fraction(outdir):
 	logger("Data driven fraction will be performed", level="INFO")
-	check_dir(f"{outdir}/frac")
+	# check_dir(f"{outdir}/frac")
  
-	cutvar_file = f"{outdir}/cutVar/cutVar.root"
-	eff_path = f"{outdir}/effs"
+	cutvar_file = f"{outdir}/cutvar/frac/frac.root"
+	eff_path = f"{outdir}"
 
 	cmd = (
 		f"python3 {paths['DataDrivenFraction']} {cutvar_file} {eff_path} -b"
@@ -133,56 +134,109 @@ def data_driven_fraction(outdir):
 	logger(f"{cmd}", level="COMMAND")
 	os.system(cmd)
 
-def run_cut_variation(config, config_file, operations, nworkers, outdir):
+def run_cut_variation(config, pt_config_path, operations, nworkers, outdir):
 	#___________________________________________________________________________________________________________________________
 	# make yaml file
-	if operations.get('make_yaml', False):
-		make_yaml(config, outdir)
-	else:
-		logger("Make yaml will not be performed", level="WARNING")
-
+	logger("Creating Yaml files for cut variation", level="INFO")
+	make_yaml(pt_config_path, outdir, 'cutvar')
+	
 	mCutSets = len([f for f in os.listdir(f"{outdir}/cutsets") if os.path.isfile(os.path.join(f"{outdir}/cutsets", f))])
 	logger(f"mCutSets: {mCutSets}", level="INFO")
 
 	#___________________________________________________________________________________________________________________________
 	# Projection for Data and/or MC
-	if operations.get('proj_mc', False) or operations.get('proj_data', False):
-		project(config, outdir, nworkers, mCutSets)
-	else:
-		logger("Projections will not be performed", level="WARNING")
+	logger("Projecting for cut variation", level="INFO")
+	project(pt_config_path, outdir, nworkers, mCutSets)
 
 	#___________________________________________________________________________________________________________________________
 	# Correlated bkgs templates
-	if operations.get('produce_corr_bkgs_templs', False):
-		produce_corr_bkgs_templs(config, outdir, nworkers, mCutSets, 
-                                 config_file['corr_bkgs'].get('smooth', False))
+	if operations.get('do_corr_bkgs', False):
+		logger("Computing corr. bkgs for cut variation", level="INFO")
+		produce_corr_bkgs_templs(pt_config_path, outdir, nworkers, mCutSets)
 	else:
 		logger("Correlated bkgs will not be included", level="WARNING")
 
 	#___________________________________________________________________________________________________________________________
 	# Efficiencies
-	if operations.get('efficiencies', False):
-		efficiencies(config, outdir, nworkers, mCutSets)
+	logger("Computing efficiencies for cut variation", level="INFO")
+	efficiencies(pt_config_path, outdir, nworkers, mCutSets)
+
+	#___________________________________________________________________________________________________________________________
+	# Raw Yield extraction
+	logger("Fit raw yields for cut variation", level="INFO")
+	get_raw_yields(pt_config_path, outdir, nworkers, mCutSets)
+
+	#___________________________________________________________________________________________________________________________
+	# Cut variation
+	logger("Perform cut variation", level="INFO")
+	cut_variation(pt_config_path, outdir, operations=operations)
+
+def extract_raw_yields(config, pt_config_path, outdir):
+
+	operations = config['operations']
+
+	#___________________________________________________________________________________________________________________________
+	# make yaml file
+	if operations.get('do_make_yaml', False):
+		make_yaml(pt_config_path, outdir, 'ry')
+	else:
+		logger("Make yaml will not be performed", level="WARNING")
+
+	#___________________________________________________________________________________________________________________________
+	# Projection for Data and/or MC
+	if operations.get('do_proj_mc', False) or operations.get('do_proj_data', False):
+		config_cutset = f"{outdir}/cutset.yml"
+		cmd = (
+			f"python3 {paths['Projections']} {pt_config_path} -cc {config_cutset}"
+		)
+		logger(f"{cmd}", level="COMMAND")
+		os.system(cmd)
+	else:
+		logger("Projections will not be performed", level="WARNING")
+
+	#___________________________________________________________________________________________________________________________
+	# Correlated bkgs templates
+	if operations.get('do_corr_bkgs', False):
+		produce_corr_bkgs_templs(pt_config_path, outdir)
+	else:
+		logger("Correlated bkgs will not be included", level="WARNING")
+
+	#___________________________________________________________________________________________________________________________
+	# Efficiencies
+	if operations.get('do_calc_eff', False):
+		print(f"\033[32mComputing efficiency of central value ...\033[0m")
+		proj_central = f"{outdir}/proj.root"
+		cmd = (
+			f"python3 {paths['Efficiencies']} {pt_config_path} {proj_central} -b"
+		)
+		logger(f"{cmd}", level="COMMAND")
+		os.system(cmd)
 	else:
 		logger("Efficiencies will not be computed", level="WARNING")
 
 	#___________________________________________________________________________________________________________________________
-	# Simultaneous fit
-	if operations.get('get_raw_yields', False):
-		get_raw_yields(config, outdir, nworkers, mCutSets)
+	# Raw Yield extraction
+	if operations.get('do_get_ry', False):
+		print(f"\033[32m Extracting raw yields for central value ...\033[0m")
+		proj_central = f"{outdir}/proj.root"
+		cmd = (
+			f"python3 {paths['GetRawYields']} {pt_config_path} {proj_central}"
+		)
+		logger(f"{cmd}", level="COMMAND")
+		os.system(cmd)
 	else:
 		logger("Fit raw yields will not be performed", level="WARNING")
-
+  
 	#___________________________________________________________________________________________________________________________
 	# Cut variation
-	if operations.get('do_cut_variation'):
-		cut_variation(config, outdir, operations=operations)
+	if operations.get('do_cut_var', False):
+		run_cut_variation(config, pt_config_path, operations, nworkers, f"{outdir}/cutvar")
 	else:
 		logger("Cut variation will not be performed", level="WARNING")
-
+  
 	#___________________________________________________________________________________________________________________________
 	 # Data driven fraction
-	if operations.get('data_driven_fraction', False):
+	if operations.get('do_data_driven_frac', False):
 		data_driven_fraction(outdir)
 	else:
 		logger("Data driven fraction will not be performed", level="WARNING")
@@ -200,28 +254,44 @@ if __name__ == "__main__":
 
 	operations = config['operations']
 	nworkers = config['nworkers']
-	if config.get('suffix'):
-		outdir = f"{config['outdir']}/cutvar_{config['suffix']}"
-		suffix = f"_{config['suffix']}"
-	else:
-		outdir = f"{config['outdir']}/cutvar"
-		suffix = ''
+	outdir = f"{config['outdir']}/{config['outfolder']}"
 	os.system(f"mkdir -p {outdir}")
 
 	# copy the configuration file
 	nfile = 0
 	os.makedirs(f'{outdir}/config_ry', exist_ok=True)
-	while os.path.exists(f'{outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}{suffix}_{nfile}.yml'):
+	while os.path.exists(f'{outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}_{nfile}.yml'):
 		nfile = nfile + 1
-	os.system(f'cp {args.config} {outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}{suffix}_{nfile}.yml')
+	os.system(f'cp {args.config} {outdir}/config_ry/{os.path.splitext(os.path.basename(args.config))[0]}_{nfile}.yml')
 
-	if operations.get('preprocess_data') or operations.get('preprocess_mc'):
+	if operations.get('do_prep_data') or operations.get('do_prep_mc'):
 		print("\033[32mINFO: Preprocess will be performed\033[0m")
 		os.system(f"python3 {paths['Preprocess']} {args.config}")
 	else:
 		print("\033[33mWARNING: Preprocess will not be performed\033[0m")
 
-	run_cut_variation(args.config, config, operations, nworkers, outdir)
+	for pt_bin in config['pt_bins']:
+		pt_bin_cfg = copy.deepcopy(config)
+		pt_bin_cfg.pop('pt_bins', None)
+		# pt_bin_cfg['pt_bins'] = [pt_bin]
+		pt_bin_cfg['ry_setup'] = pt_bin
+		# pt_bin_cfg.pop('preprocess', None)
+		# pt_bin_cfg.pop('operations', None)
+		pt_bin_str = f"pt_{int(pt_bin['pt_range'][0]*10)}_{int(pt_bin['pt_range'][1]*10)}"
+		pt_bin_cfg['outfolder'] = f"{pt_bin_cfg['outfolder']}/{pt_bin_str}"
+		os.makedirs(f"{outdir}/{pt_bin_str}", exist_ok=True)
+		pt_cfg_path = f"{outdir}/{pt_bin_str}/config_{pt_bin_str}.yml"
+		with open(pt_cfg_path, 'w') as file:
+			yaml.dump(pt_bin_cfg, file, default_flow_style=False, sort_keys=False)
+		extract_raw_yields(config, pt_cfg_path, f"{outdir}/{pt_bin_str}")
+
+	if operations.get('do_results_merger', False):
+		logger("Merging results across pt bins", level="INFO")
+		cmd = (
+			f"python3 {paths['ResultsMerger']} {outdir}"
+		)
+		logger(f"{cmd}", level="COMMAND")
+		os.system(cmd)
 
 	end_time = time.time()
 	execution_time = end_time - start_time

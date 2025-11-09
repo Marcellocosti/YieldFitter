@@ -351,17 +351,24 @@ if __name__ == "__main__":
         sys.exit(0)
 
     with open(args.cutsetConfig, 'r') as ymlCutSetFile:
+        print(f"Opening cutset config file: {args.cutsetConfig}")
+        print(f"ymlCutSetFile: {ymlCutSetFile}")
         cutSetCfg = yaml.load(ymlCutSetFile, yaml.FullLoader)
-        iCut = f"{int(cutSetCfg['icutset']):02d}"
-
-    outDir = os.path.join(os.path.dirname(os.path.dirname(args.cutsetConfig)), 'projs') if args.outputDir == "" else args.outputDir
-    outfilePath = os.path.join(outDir, f"proj_{iCut}.root")
-    os.makedirs(outDir, exist_ok=True)
-
+        if cutSetCfg['icutset'] != 'central':
+            iCut = f"{int(cutSetCfg['icutset']):02d}"
+            outDir = os.path.join(os.path.dirname(os.path.dirname(args.cutsetConfig)), 'projs') if args.outputDir == "" else args.outputDir
+            outfilePath = os.path.join(outDir, f"proj_{iCut}.root")
+            os.makedirs(outDir, exist_ok=True)
+        else:
+            outfilePath = args.cutsetConfig.replace('.yml', '.root').replace('cutset', 'proj')
+            outDir = os.path.dirname(outfilePath)
+            os.makedirs(outDir, exist_ok=True)
+    print(f"Output projection file: {outfilePath}")
     is_sparse_data_type = True if config["input_type"] == "Sparse" else False
     if is_sparse_data_type:
         logger(f"Input data is sparse", level='INFO')
-        if operations["proj_data"] or operations["proj_mc"]:
+        print(f"operations: {operations}\n\n")
+        if operations["do_proj_data"] or operations["do_proj_mc"]:
             if os.path.exists(outfilePath):
                 logger(f"Found previous projection file {outfilePath}, will update it", level='INFO')
                 outfile = TFile.Open(outfilePath, 'UPDATE')
@@ -372,64 +379,66 @@ if __name__ == "__main__":
             sys.exit(0)
     else:
         write_opt_data_tree, write_opt_mc_tree = 'recreate', 'update'  # default write options for tree output
-        if not operations["proj_data"] and operations["proj_mc"]:
+        if not operations["do_proj_data"] and operations["do_proj_mc"]:
             write_opt_mc_tree = 'recreate'
-
-    write_opt_data = TObject.kOverwrite if operations.get("proj_data") else 0 
-    write_opt_mc = TObject.kOverwrite if operations.get("proj_mc") else 0 
-
+    print(f"Starting projections for cutset {cutSetCfg['icutset']} ...")
+    write_opt_data = TObject.kOverwrite if operations.get("do_proj_data") else 0 
+    write_opt_mc = TObject.kOverwrite if operations.get("do_proj_mc") else 0 
+    print(f"write_opt_data: {write_opt_data}, write_opt_mc: {write_opt_mc}")
     # compute info for pt weights
-    if operations.get("proj_mc"):
+    if operations.get("do_proj_mc"):
         sPtWeightsD, sPtWeightsB, Bspeciesweights = get_pt_weights(config["projections"]) if config['projections'].get('PtWeightsFile') else (None, None, None)
 
-    with alive_bar(len(cutSetCfg['Pt']['min']), title='Processing pT bins') as bar:
-        for iPt, (ptMin, ptMax, bkg_min, bkg_max, fd_min, fd_max) in enumerate(zip(cutSetCfg['Pt']['min'], cutSetCfg['Pt']['max'],
-                                                                                   cutSetCfg['score_bkg']['min'], cutSetCfg['score_bkg']['max'],
-                                                                                   cutSetCfg['score_FD']['min'], cutSetCfg['score_FD']['max'])):
+    ptMin = cutSetCfg['pt_min']
+    ptMax = cutSetCfg['pt_max']
+    bkg_min = cutSetCfg['score_bkg_min']
+    bkg_max = cutSetCfg['score_bkg_max']
+    fd_min = cutSetCfg['score_FD_min']
+    fd_max = cutSetCfg['score_FD_max']
+    print(f"Applying cuts: bkg [{bkg_min}, {bkg_max}], FD [{fd_min}, {fd_max}]")
+    # Cut on centrality and pt on data applied in the preprocessing
+    print(f'Projecting distributions for {ptMin:.1f} < pT < {ptMax:.1f} GeV/c')
+    pt_label = f"pt_{int(ptMin*10)}_{int(ptMax*10)}"
+    inputsData, inputsReco, inputsGen, axes = get_pt_preprocessed_inputs(config, pt_label, is_sparse_data_type)
+    if is_sparse_data_type:
+        make_dir_root_file(pt_label, outfile)
+        outfile.cd(pt_label)
 
-            # Cut on centrality and pt on data applied in the preprocessing
-            print(f'Projecting distributions for {ptMin:.1f} < pT < {ptMax:.1f} GeV/c')
+    if operations.get("do_proj_data"):
+        print(f"inputsData: {inputsData}")
+        for key, _ in inputsData.items():
+            print_entries(inputsData[key], "Entries before selection")
+            print(f"type inputsData[key]: {type(inputsData[key])}")
+            inputsData[key] = apply_selection(inputsData[key], axes['Data'], "score_bkg", bkg_min, bkg_max)
+            print_entries(inputsData[key], "Entries after selection bkg")
+            inputsData[key] = apply_selection(inputsData[key], axes['Data'], "score_FD", fd_min, fd_max)
+            print_entries(inputsData[key], "Entries after selection FD and bkg")
+        if is_sparse_data_type:
+            proj_data_sparse(inputsData, axes, config["projections"].get('storeML'), write_opt_data)
+        else:
+            proj_data_tree(outfilePath, axes, inputsData, config["projections"].get('storeML'), ptMin, ptMax, write_opt_data_tree)
+        print(f"Projected data!")
 
-            inputsData, inputsReco, inputsGen, axes = get_pt_preprocessed_inputs(config, iPt, is_sparse_data_type)
+    if operations.get("do_proj_mc"):
+        for key, _ in inputsReco.items():
+            inputsReco[key] = apply_selection(inputsReco[key], axes[key], 'score_bkg', bkg_min, bkg_max)
+            inputsReco[key] = apply_selection(inputsReco[key], axes[key], 'score_FD', fd_min, fd_max)
 
-            if is_sparse_data_type:
-                make_dir_root_file(f'pt_{int(ptMin*10)}_{int(ptMax*10)}', outfile)
-                outfile.cd(f'pt_{int(ptMin*10)}_{int(ptMax*10)}')
+        if is_sparse_data_type:
+            proj_mc_reco_sparse(inputsReco, sPtWeightsD, sPtWeightsB, Bspeciesweights, write_opt_mc)
+        else:
+            proj_mc_reco_tree(inputsReco, ptMin, ptMax, outfilePath, write_opt_mc_tree)
+        print("Projected mc reco!")
+        if is_sparse_data_type:
+            proj_mc_gen_sparse(inputsGen, sPtWeightsD, sPtWeightsB, Bspeciesweights, write_opt_mc)
+        else:
+            # proj_mc_gen_tree(inputsGen, write_opt_mc)
+            logger("MC Gen projection for Tree input type not implemented yet", level='WARNING')
+        print("Projected mc gen!")
 
-            if operations["proj_data"]:
-                print(f"inputsData: {inputsData}")
-                for key, _ in inputsData.items():
-                    print_entries(inputsData[key], "Entries before selection")
-                    print(f"type inputsData[key]: {type(inputsData[key])}")
-                    inputsData[key] = apply_selection(inputsData[key], axes['Data'], "score_bkg", bkg_min, bkg_max)
-                    print_entries(inputsData[key], "Entries after selection bkg")
-                    inputsData[key] = apply_selection(inputsData[key], axes['Data'], "score_FD", fd_min, fd_max)
-                    print_entries(inputsData[key], "Entries after selection FD and bkg")
-                if is_sparse_data_type:
-                    proj_data_sparse(inputsData, axes, config["projections"].get('storeML'), write_opt_data)
-                else:
-                    proj_data_tree(outfilePath, axes, inputsData, config["projections"].get('storeML'), ptMin, ptMax, write_opt_data_tree)
-                print(f"Projected data!")
-
-            if operations.get("proj_mc"):
-                for key, _ in inputsReco.items():
-                    inputsReco[key] = apply_selection(inputsReco[key], axes[key], 'score_bkg', bkg_min, bkg_max)
-                    inputsReco[key] = apply_selection(inputsReco[key], axes[key], 'score_FD', fd_min, fd_max)
-
-                if is_sparse_data_type:
-                    proj_mc_reco_sparse(inputsReco, sPtWeightsD, sPtWeightsB, Bspeciesweights, write_opt_mc)
-                else:
-                    proj_mc_reco_tree(inputsReco, ptMin, ptMax, outfilePath, write_opt_mc_tree)
-                print("Projected mc reco!")
-                if is_sparse_data_type:
-                    proj_mc_gen_sparse(inputsGen, sPtWeightsD, sPtWeightsB, Bspeciesweights, write_opt_mc)
-                else:
-                    # proj_mc_gen_tree(inputsGen, write_opt_mc)
-                    logger("MC Gen projection for Tree input type not implemented yet", level='WARNING')
-                print("Projected mc gen!")
-
-            print('\n\n')
-            bar()
+    print('\n\n')
 
     if is_sparse_data_type:
         outfile.Close()
+    print(f"\n\nClosing output file: {outfilePath}")
+    print("Done!")

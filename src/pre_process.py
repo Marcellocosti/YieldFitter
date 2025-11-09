@@ -22,7 +22,7 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f"{script_dir}/")
 sys.path.append(f"{script_dir}/../utils/")
 from utils import get_centrality_bins, make_dir_root_file, logger
-from data_model import get_data_model_dicts, get_inputs, apply_selection, build_tree_data_frame, print_entries
+from data_model import get_inputs, apply_selection, build_tree_data_frame, print_entries
 
 def check_existing_outputs(ptmin, ptmax, outputDir, stage):
 
@@ -227,36 +227,36 @@ def process_pt_bin_mc_sparses(config, ptmin, ptmax, centmin, centmax, bkg_max_cu
         for i_input in range(len(reco_input)):
             reco_input[i_input] = apply_selection(reco_input[i_input], data_model_vars[key], 'Pt', ptmin, ptmax)
             reco_input[i_input] = apply_selection(reco_input[i_input], data_model_vars[key], 'score_bkg', 0, bkg_max_cut)
-    for key, mc_input in reco_inputs.items():
-        for iSparse, data_input in enumerate(mc_input):
-            cloned_data_input = data_input.Clone()
+    for key, mc_inputs in reco_inputs.items():
+        for i_mc_input, mc_input in enumerate(mc_inputs):
+            cloned_mc_input = mc_input.Clone()
             proj_axes = [data_model_vars[key][axtokeep] for axtokeep in axes_reco if axtokeep in data_model_vars[key]] # Different axes for reco and gen allowed
-            proj_data_input = cloned_data_input.Projection(len(proj_axes), array.array('i', proj_axes), 'O')
-            proj_data_input.SetName(f"{cloned_data_input.GetName()}_{idata_input}")
-            proj_data_input = proj_data_input.Rebin(array.array('i', rebin_reco))
+            proj_mc_input = cloned_mc_input.Projection(len(proj_axes), array.array('i', proj_axes), 'O')
+            proj_mc_input.SetName(f"{cloned_mc_input.GetName()}_{i_mc_input}")
+            proj_mc_input = proj_mc_input.Rebin(array.array('i', rebin_reco))
 
-            if idata_input == 0:
-                processed_data_input = proj_data_input.Clone()
+            if i_mc_input == 0:
+                processed_mc_input = proj_mc_input.Clone()
                 make_dir_root_file(f'pt_{int(ptmin*10)}_{int(ptmax*10)}/MC/Reco/{key}', debugPreprocessFile)
                 debugPreprocessFile.cd(f'pt_{int(ptmin*10)}_{int(ptmax*10)}/MC/Reco/{key}')
-                for iDim in range(processed_data_input.GetNdimensions()):
+                for iDim in range(processed_mc_input.GetNdimensions()):
                     try:
-                        processed_data_input.Projection(iDim).Write(axes_reco[iDim], TObject.kOverwrite)
+                        processed_mc_input.Projection(iDim).Write(axes_reco[iDim], TObject.kOverwrite)
                     except Exception as e:
                         print(f"⚠️ Exception at iDim={iDim}: {e}", flush=True)
             else:
-                processed_sparse.Add(proj_sparse)
+                processed_mc_input.Add(proj_mc_input)
 
         outFile.cd('MC/Reco/')
-        processed_sparse.SetName(f'h{key}')
-        processed_sparse.Write(f'h{key}', write_opt)
-        del processed_sparse
+        processed_mc_input.SetName(f'h{key}')
+        processed_mc_input.Write(f'h{key}', write_opt)
+        del processed_mc_input
 
     make_dir_root_file('MC/Gen/', outFile)
     for key, input_type in gen_inputs.items():
         [sparse.GetAxis(data_model_vars[key]['Pt']).SetRangeUser(ptmin, ptmax) for sparse in input_type]
-    for key, input_type in gen_inputs.items():
-        for iSparse, sparse in enumerate(input_type):
+    for key, inputs_type in gen_inputs.items():
+        for iSparse, sparse in enumerate(inputs_type):
             cloned_sparse = sparse.Clone()
             proj_axes = [data_model_vars[key][axtokeep] for axtokeep in axes_gen if axtokeep in data_model_vars[key]]
             proj_sparse = cloned_sparse.Projection(len(proj_axes), array.array('i', proj_axes), 'O')

@@ -94,6 +94,7 @@ def data_driven_frac(outputDir, iFile, hEffPrompt, hEffFD, \
     cEff.Update()
 
     outFile = TFile(os.path.join(outputDir, f'frac_{iFile:02}.root'), 'recreate')
+    print(f"outFile: {os.path.join(outputDir, f'frac_{iFile:02}.root')}")
     hEffPrompt.Write()
     hEffFD.Write()
     hPromptFrac.Write()
@@ -110,12 +111,13 @@ def main_data_driven_frac(cutVarFile, effPath, batch=False):
     if batch:
         gROOT.SetBatch()
     
-    hEffPrompts, hEffFDs, hPromptFracs, hFDFracs, hPromptFracCorrs, hFDFracCorrs = load_eff_histos(load_root_files(effPath, 'eff_'))
+    hEffPrompts, hEffFDs, hPromptFracs, hFDFracs, hPromptFracCorrs, hFDFracCorrs = load_eff_histos(load_root_files(effPath, 'eff'))
     hCorrYieldPrompt, hCorrYieldFD, hCovPromptPrompt, hCovPromptFD, hCovFDFD = load_cutVar_histos(cutVarFile)
-    outputDir = os.path.join(os.path.dirname(effPath), 'frac')
+    outputDir = os.path.dirname(effPath)
     logger(f'Output directory: {outputDir}', level='INFO')
     os.makedirs(outputDir, exist_ok=True)
     for iFile in range(len(hEffPrompts)):
+        print(f'Processing cutset {iFile}')
         data_driven_frac(
             outputDir,
             iFile,

@@ -25,7 +25,7 @@ def pad_to_length(list, target_len):
     len_offset = target_len - list_length
     return list + [list[-1]] * len_offset if list_length < target_len else list
 
-def make_yaml(flow_config, outputdir, correlated):
+def make_yaml_cutvar(flow_config, outputdir, correlated):
     '''
         Function to create a yaml file with a set of cuts for ML
         Args:
@@ -35,51 +35,62 @@ def make_yaml(flow_config, outputdir, correlated):
     with open(flow_config, 'r') as f:
         cfg = yaml.safe_load(f)
 
-    ptmins = cfg['ptbins'][:-1]
-    ptmaxs = cfg['ptbins'][1:]
-    nPtBins = len(ptmins)
-
-    cfg_cutvar = cfg['cut_variation']
-    sig = cfg_cutvar['sig']
-    sig_cuts_lower = [list(np.arange(sig['min'][i], sig['max'][i], sig['step'][i])) for i in range(nPtBins)]
-    sig_cuts_upper = [[1.0] * len(cuts) for cuts in sig_cuts_lower]
-
-    # Determine the maximum number of cut sets across pt bins and pad all to uniform length
-    maxCutSets = max(len(cuts) for cuts in sig_cuts_lower)
-    sig_cuts_lower = [pad_to_length(cuts, maxCutSets) for cuts in sig_cuts_lower]
-    sig_cuts_upper = [pad_to_length(cuts, maxCutSets) for cuts in sig_cuts_upper]
-    # Transpose: convert [iPt][iCut] → [iCut][iPt]
-    sig_cuts_lower = list(map(list, zip(*sig_cuts_lower)))
-    sig_cuts_upper = list(map(list, zip(*sig_cuts_upper)))
-
-    bkg_cuts_upper = [[cut for iCut, cut in enumerate(cfg_cutvar['bkg_max']) if iCut < nPtBins]] * maxCutSets
-    
     os.makedirs(f'{outputdir}/cutsets', exist_ok=True)
-    for iCut, (bkg_maxs, fd_mins, fd_maxs) in enumerate(zip(bkg_cuts_upper, sig_cuts_lower, sig_cuts_upper)):
-        bkg_max = list(map(float, bkg_maxs))
-        fd_min  = list(map(float, fd_mins))
-        fd_max  = list(map(float, fd_maxs))
-
-        if len(fd_min) != len(ptmins) or len(fd_max) != len(ptmins) or len(bkg_max) != len(ptmins):
-            raise ValueError(f"Lengths do not match: bkg_max: {len(bkg_max)}, fd_max: {len(fd_max)}, fd_min: {len(fd_min)}, ptmins: {len(ptmins)}")
-
+    cut_var = cfg['ry_setup']['cut_variation']
+    fd_cuts = np.arange(cut_var['fd_min'], cut_var['fd_max'], cut_var['fd_step'])
+    for i_cut, fd_cut in enumerate(fd_cuts):
         combinations = {
-            'icutset': iCut,
-            'Pt': {'min': ptmins, 'max': ptmaxs},
-            'score_bkg': {'min': [0.0] * len(ptmins), 'max': bkg_max},
-            'score_FD': {'min': fd_min, 'max': fd_max},
+            'icutset': f"{i_cut:02}",
+            'pt_min': cfg['ry_setup']['pt_range'][0], 
+            'pt_max': cfg['ry_setup']['pt_range'][1],
+            'score_bkg_min': 0.0,
+            'score_bkg_max': cut_var['bkg_max'],
+            'score_FD_min': float(fd_cut),
+            'score_FD_max': 1.0
         }
-
-        with open(f'{outputdir}/cutsets/cutset_{iCut:02}.yml', 'w') as file:
+        print(f'{outputdir}/cutsets/cutset_{i_cut:02}.yml')
+        with open(f'{outputdir}/cutsets/cutset_{i_cut:02}.yml', 'w') as file:
             yaml.dump(combinations, file, default_flow_style=False, sort_keys=False)
 
     print(f'Cutsets saved in {outputdir}/cutsets')
+
+def make_yaml_ry(flow_config, outputdir, correlated):
+    '''
+        Function to create a yaml file with a set of cuts for ML
+        Args:
+            flow_config (str): path to the flow config file
+            outputdir (str): path to the output directory
+    '''
+    with open(flow_config, 'r') as f:
+        cfg = yaml.safe_load(f)
+
+    pt_bin_cfg = {
+        'icutset': 'central',
+        'pt_min': cfg['ry_setup']['pt_range'][0], 
+        'pt_max': cfg['ry_setup']['pt_range'][1],
+        'score_bkg_min': 0.0,
+        'score_bkg_max': cfg['ry_setup']['bkg_cut_central'],
+        'score_FD_min': cfg['ry_setup']['fd_min_cut_central'],
+        'score_FD_max': cfg['ry_setup']['fd_max_cut_central']
+    }
+
+    outdir = os.path.join(cfg["outdir"], cfg["outfolder"])
+    os.makedirs(outdir, exist_ok=True)
+    with open(f'{outdir}/cutset.yml', 'w') as file:
+        yaml.dump(pt_bin_cfg, file, default_flow_style=False, sort_keys=False)
+
+    print(f'Cutsets saved in {outdir}/cutset.yml')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments')
     parser.add_argument('flow_config', metavar='text', default='config_flow.yml')
     parser.add_argument("--outputdir", "-o", metavar="text", default=".", help="output directory")
-    parser.add_argument("--correlated", "-c", action="store_true", help="Produce yml files for correlated cuts")
+    parser.add_argument("--config_type", "-cfg_type", metavar="text", default="ry", help="Produce yml files for ry (raw yield) or cut variation")
     args = parser.parse_args()
 
-    make_yaml(args.flow_config, args.outputdir, args.correlated)
+    if args.config_type == 'cutvar':
+        make_yaml_cutvar(args.flow_config, args.outputdir, args.config_type)
+    elif args.config_type == 'ry':
+        make_yaml_ry(args.flow_config, args.outputdir, args.config_type)
+    else:
+        raise ValueError(f"Unknown type {args.config_type}, please use 'ry' or 'cutvar'")

@@ -35,7 +35,7 @@ def get_corr_bkg_template(path, input_type, file_path):
         hist.SetDirectory(0)
         return hist
 
-def set_fitter_init_pars(ipt, full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs):
+def set_fitter_init_pars(full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs, n_sgn_functs):
     print(f"\n\nSetting fitter initial parameters for pt range {pt_min} - {pt_max} GeV/c")
 
     # First init, then eventually override with fix
@@ -81,7 +81,6 @@ def set_fitter_init_pars(ipt, full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_funct
             par_file = TFile.Open(file_pars, "READ")
             for par_name in par_names:
                 try:
-                    print(f"    Getting histo hist_{par_name} ... ")
                     histo_par = par_file.Get(f"hist_{par_name}")
                     for i_bin in range(histo_par.GetNbinsX()+1):
                         bin_center = histo_par.GetBinCenter(i_bin)
@@ -98,26 +97,34 @@ def set_fitter_init_pars(ipt, full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_funct
                             if isinstance(cfg_corrbkgs["shift_mass"], float):
                                 shift = cfg_corrbkgs["shift_mass"]
                             elif isinstance(cfg_corrbkgs["shift_mass"], list):
-                                shift = cfg_corrbkgs["shift_mass"][ipt]
+                                shift = cfg_corrbkgs["shift_mass"]
                             else:
                                 logger(f"Taking mass shifts from {cfg_corrbkgs['shift_mass']}", "INFO")
                                 shifts_file = TFile.Open(cfg_corrbkgs['shift_mass'], "READ")
                                 shifts_histo = shifts_file.Get("delta_mean_data_mc")
                                 shifts_histo.SetDirectory(0)
-                                shift = shifts_histo.GetBinContent(ipt+1)
+                                for ipt in range(smear_histo.GetNbinsX()+1):
+                                    bin_center = smear_histo.GetBinCenter(ipt)
+                                    if bin_center > pt_min and bin_center < pt_max:
+                                        shift = shifts_histo.GetBinContent(ipt+1)
+                                        break
                                 shifts_file.Close()
                             par_val += shift
                         if cfg_corrbkgs.get('smear_sigma') and 'sigma' in par_name:
                             if isinstance(cfg_corrbkgs["smear_mass"], float):
                                 smear = cfg_corrbkgs["smear_mass"]
                             elif isinstance(cfg_corrbkgs["smear_mass"], list):
-                                smear = cfg_corrbkgs["smear_mass"][ipt]
+                                smear = cfg_corrbkgs["smear_mass"]
                             else:
                                 logger(f"Taking mass shifts from {cfg_corrbkgs['smear_mass']}", "INFO")
                                 smear_file = TFile.Open(cfg_corrbkgs['smear_mass'], "READ")
                                 smear_histo = smear_file.Get("delta_sigma_data_mc")
                                 smear_histo.SetDirectory(0)
-                                smear = smear_histo.GetBinContent(ipt+1)
+                                for ipt in range(smear_histo.GetNbinsX()+1):
+                                    bin_center = smear_histo.GetBinCenter(ipt)
+                                    if bin_center > pt_min and bin_center < pt_max:
+                                        smear = smear_histo.GetBinContent(ipt+1)
+                                        break
                                 smear_file.Close()
                             par_val += smear
                     print(f"---> fixing signal parameter {par_name} to value {par_val}, shift {shift}, smear {smear}")
@@ -189,13 +196,14 @@ def set_corr_bkgs(fitter, corr_bkgs_templs, sgn_bkgs_templs, cfg):
             bkg_func_idx += 1
             continue
 
-def perform_fit(pt_bin_cfg, corr_bkg_file_path, fit_info, \
-                data_hdl, pt_label, ipt, \
+def perform_fit(pt_bin_cfg, corr_bkg_file_path, \
+                data_hdl, pt_label, \
                 config_file, pt_min, pt_max, \
-                bkg_functs, sgn_functs, label_bkg_pdf, label_signal_pdf):
+                labels_bkg, labels_sgn):
 
     # Add correlated bkg templates
     corr_bkgs_templs, sgn_bkgs_templs = {}, {}
+    bkg_functs, sgn_functs = [], []
     if pt_bin_cfg.get("corr_bkgs"):
 
         # Get the fraction
@@ -224,7 +232,6 @@ def perform_fit(pt_bin_cfg, corr_bkg_file_path, fit_info, \
                 sgn_functs.append(corr_bkg_source['sgn_func'])
                 sgn_bkgs_templs[chn_name]['frac'] = weights[chn_name]
                 sgn_bkgs_templs[chn_name]['idx'] = i_source_corr_bkg_sgn + len(pt_bin_cfg['sgn_func'])
-                label_signal_pdf.append(rf"$\mathrm{{{chn_name}}}$")
                 i_source_corr_bkg_sgn += 1
                 continue
 
@@ -244,181 +251,118 @@ def perform_fit(pt_bin_cfg, corr_bkg_file_path, fit_info, \
 
             corr_bkgs_templs[chn_name]['idx'] = i_source_corr_bkg_bkg
             i_source_corr_bkg_bkg += 1
-            label_bkg_pdf.append(chn_name)
 
-    label_bkg_pdf = label_bkg_pdf + ["Comb. bkg"]
-    bkg_functs = bkg_functs + pt_bin_cfg['bkg_func']
-    print(f"\n\ncorr_bkgs_templs: {corr_bkgs_templs}\n\n")
+    bkg_functs = bkg_functs + pt_bin_cfg['ry_setup']['bkg_func']
+    sgn_functs = sgn_functs + pt_bin_cfg['ry_setup']['sgn_func']
     print(f"Using signal function: {sgn_functs} and background function: {bkg_functs}")
+    print(f"Using signal labels: {labels_sgn} and background labels: {labels_bkg}")
+    fitter = F2MassFitter(data_hdl, label_signal_pdf=labels_sgn, name_signal_pdf=sgn_functs,
+                          name_background_pdf=bkg_functs, label_bkg_pdf=labels_bkg, name=pt_label)
 
-    fitter = F2MassFitter(data_hdl, label_signal_pdf=label_signal_pdf, name_signal_pdf=sgn_functs,
-                          name_background_pdf=bkg_functs, label_bkg_pdf=label_bkg_pdf, name=pt_label)
+    print(f"pt_bin_cfg: {pt_bin_cfg}\n")
 
     # Set reflection template
-    print(f"len(pt_bin_cfg['bkg_func']): {len(pt_bin_cfg['bkg_func'])}")
-    sgn_func_idx = pt_bin_cfg.get("sgn_func_idx", 0)  # Assuming first signal function is the main signal
-    if pt_bin_cfg.get("corr_bkgs"):
-        set_corr_bkgs(fitter, corr_bkgs_templs, sgn_bkgs_templs, pt_bin_cfg)
-    if pt_bin_cfg.get("init_pars"):
-        set_fitter_init_pars(ipt, config_file, fitter, pt_bin_cfg["init_pars"], pt_min, pt_max, len(bkg_functs))
+    if pt_bin_cfg['ry_setup'].get("corr_bkgs"):
+        set_corr_bkgs(fitter, corr_bkgs_templs, sgn_bkgs_templs, pt_bin_cfg['ry_setup']["corr_bkgs"])
+    if pt_bin_cfg['ry_setup'].get("init_pars"):
+        set_fitter_init_pars(config_file, fitter, pt_bin_cfg['ry_setup']["init_pars"], pt_min, pt_max, len(bkg_functs), len(sgn_functs))
     # fitter.set_signal_initpar(sgn_func_idx, "frac", 0.2, limits=[0., 1.])
     result = fitter.mass_zfit()
 
     return fitter, result
 
-def get_raw_yields(config_file, infile_path, outfile_name, mass_axis_label, fit_type):
+def produce_func_labels(cfg, decay):
+    bkg_labels = []
+    sgn_labels = []
+    if cfg.get('corr_bkgs'):
+        for chn in cfg['corr_bkgs']['channels']:
+            if chn.get('sgn_func'):
+                sgn_labels.append(chn['name'])
+            else:
+                bkg_labels.append(chn['name'])
 
-    # Store fit info
+    sgn_labels.append(decay)
+    bkg_labels.append("Comb. bkg")
+    
+    return sgn_labels, bkg_labels
+
+def get_raw_yields(cfg_ry, cfg, data, outfile_name, corr_bkg_file_path, mass_axis_label, bkg_labels, sgn_labels):
+
+    if isinstance(data, TH1):
+        data_hdl = DataHandler(data, limits=cfg_ry["fit_range"], rebin=cfg_ry.get('rebin', 1))
+    else:
+        data_hdl = DataHandler(data, var_name='fM', limits=cfg_ry["fit_range"], nbins=100)
+
     fit_info = {}
-    fit_info['ry'] = []
-    fit_info['ry_unc'] = []
-    fit_info['ry_bin_counting'] = []
-    fit_info['ry_bin_counting_unc'] = []
-    fit_info['signif'] = []
-    fit_info['signif_unc'] = []
-    fit_info['s_over_b'] = []
-    fit_info['s_over_b_unc'] = []
-    fit_info['mu'] = []
-    fit_info['mu_unc'] = []
-    fit_info['sigma'] = []
-    fit_info['sigma_unc'] = []
-    fit_info['chi2_fits'] = []
-    fit_info['chi2_over_ndf_fits'] = []
 
-    file_root = uproot.recreate(outfile_name)
-    file_root.close()
+    fitter, result = perform_fit(cfg, corr_bkg_file_path,
+                                 data_hdl, pt_label,
+                                 config_file, pt_min, pt_max,
+                                 bkg_labels, sgn_labels)
 
-    # Open file with data projections
-    infile = TFile(infile_path, "READ")
-    corr_bkg_file_path = outfile_name.replace('rawyield', 'corrbkg')
+    if result.converged: # i.e. has converged
+        print(f"Plotting fit results for pt bin {pt_min} - {pt_max} GeV/c")
+        fig, axs = fitter.plot_mass_fit(style="ATLAS",
+                                        figsize=(8, 8),
+                                        axis_title=mass_axis_label,
+                                        show_extra_info=True,
+                                        logy=cfg_ry.get('logy_plots', False),
+                                        extra_info_loc=["lower right", "lower left"])
+        add_info_on_canvas(axs, "upper left", "pp", pt_min, pt_max)
 
-    pt_lims = []
-    for ipt, (pt_bin_cfg) in enumerate(config_file['ry_extraction']['pt_bins']):
-        if ipt == 0:
-            pt_lims.append(pt_bin_cfg['pt_range'][0])
-        pt_lims.append(pt_bin_cfg['pt_range'][1])
-        pt_min, pt_max = pt_bin_cfg['pt_range']
-        print(f"Fitting pt bin: {pt_min} - {pt_max} GeV/c")
-        pt_label = f"pt_{int(pt_min*10)}_{int(pt_max*10)}"
-
-        # Get data histogram
-        data_pt = get_data_to_fit(infile_path, pt_label, config_file['input_type'])
-
-        limits = pt_bin_cfg["fit_range"] if isinstance(pt_bin_cfg["fit_range"][0], float) \
-                 else [pt_bin_cfg["fit_range"][0][0], pt_bin_cfg["fit_range"][1][1]]
-        if isinstance(data_pt, TH1):
-            data_hdl = DataHandler(data_pt, limits=limits,
-                                   rebin=pt_bin_cfg.get('rebin', 1))
-        else:
-            data_hdl = DataHandler(data_pt, var_name='fM', limits=limits, nbins=100)
-
-        bkg_functs = []
-        sgn_functs = copy.deepcopy(pt_bin_cfg['sgn_func'])
-        print(f"len(pt_bin_cfg['bkg_func']): {len(pt_bin_cfg['bkg_func'])}")
-        label_bkg_pdf = []
-        if len(pt_bin_cfg['sgn_func']) > 1:
-            label_signal_pdf = pt_bin_cfg['sgn_func_labels']
-        else:
-            label_signal_pdf = [config_file['ry_extraction']['signal_label']]
-
-        fitter, result = perform_fit(pt_bin_cfg, corr_bkg_file_path, fit_info,
-                                     data_hdl, pt_label,
-                                     ipt, config_file, pt_min, pt_max,
-                                     bkg_functs, sgn_functs, label_bkg_pdf, label_signal_pdf)
-
-        if result.converged: # i.e. has converged
-            print(f"Plotting fit results for pt bin {pt_min} - {pt_max} GeV/c")
-            fig, axs = fitter.plot_mass_fit(style="ATLAS",
+        fig_res = fitter.plot_raw_residuals(style="ATLAS",
                                             figsize=(8, 8),
-                                            axis_title=mass_axis_label,
-                                            show_extra_info=True,
-                                            logy=config_file['ry_extraction'].get('logy_plots', False),
-                                            extra_info_loc=["lower right", "lower left"])
-            add_info_on_canvas(axs, "upper left", "pp", pt_min, pt_max)
+                                            axis_title=mass_axis_label)
 
-            fig_res = fitter.plot_raw_residuals(style="ATLAS",
-                                                figsize=(8, 8),
-                                                axis_title=mass_axis_label)
+        fig_pulls = fitter.plot_std_residuals(style="ATLAS",
+                                            figsize=(8, 8),
+                                            axis_title=mass_axis_label)
 
-            fig_pulls = fitter.plot_std_residuals(style="ATLAS",
-                                                figsize=(8, 8),
-                                                axis_title=mass_axis_label)
+        file_name = os.path.basename(outfile_name).replace('.root', '')
+        outdir = os.path.dirname(outfile_name)
+        try:
+            ryfile, suffix = file_name.split('_', 2)
+        except ValueError:
+            ryfile, suffix = file_name, ''
+        print(f"Saving figures in {outdir}")
+        os.makedirs(f"{outdir}/{suffix}", exist_ok=True)
+        fig.savefig(os.path.join(outdir, suffix, f"mass_{pt_label}.pdf"))
+        fig_res.savefig(os.path.join(outdir, suffix, f"massres_{pt_label}.pdf"))
+        fig_pulls.savefig(os.path.join(outdir, suffix, f"masspulls_{pt_label}.pdf"))
 
-            outdir = os.path.dirname(outfile_name)
-            print(f"Saving figures in {outdir}")
-            fig.savefig(os.path.join(outdir, f"mass_{pt_label}.pdf"))
-            fig_res.savefig(os.path.join(outdir, f"massres_{pt_label}.pdf"))
-            fig_pulls.savefig(os.path.join(outdir, f"masspulls_{pt_label}.pdf"))
+        fit_info['ry'] = fitter.get_raw_yield(0)[0]
+        fit_info['ry_unc'] = fitter.get_raw_yield(0)[1]
+        fit_info['ry_bin_counting'] = fitter.get_raw_yield_bincounting(0)[0]
+        fit_info['ry_bin_counting_unc'] = fitter.get_raw_yield_bincounting(0)[1]
+        fit_info['signif'] = fitter.get_significance(0)[0]
+        fit_info['signif_unc'] = fitter.get_significance(0)[1]
+        fit_info['s_over_b'] = fitter.get_signal_over_background(0)[0]
+        fit_info['s_over_b_unc'] = fitter.get_signal_over_background(0)[1]
+        fit_info['chi2_fits'] = float(fitter.get_chi2())
+        fit_info['chi2_over_ndf_fits'] = float(fitter.get_chi2())/fitter.get_ndf()
 
-            rawy, rawy_unc = fitter.get_raw_yield(0)
-            rawy_bc, rawy_unc_bc = fitter.get_raw_yield_bincounting(0)
-            sign, sign_unc = fitter.get_significance(0)
-            soverb, soverb_unc = fitter.get_signal_over_background(0)
-            mean, mean_unc = fitter.get_signal_parameter(0, "mu")
-            sigma, sigma_unc = fitter.get_signal_parameter(0, "sigma")
-            chi2 = fitter.get_chi2()
-            ndf = fitter.get_ndf()
+        signal_pars = fitter.get_signal_pars()
+        signal_pars_uncs = fitter.get_signal_pars_uncs()
 
-            fit_info['ry'].append(rawy)
-            fit_info['ry_unc'].append(rawy_unc)
-            fit_info['ry_bin_counting'].append(rawy_bc)
-            fit_info['ry_bin_counting_unc'].append(rawy_unc_bc)
-            fit_info['signif'].append(sign)
-            fit_info['signif_unc'].append(sign_unc)
-            fit_info['s_over_b'].append(soverb)
-            fit_info['s_over_b_unc'].append(soverb_unc)
-            fit_info['mu'].append(mean)
-            fit_info['mu_unc'].append(mean_unc)
-            fit_info['sigma'].append(sigma)
-            fit_info['sigma_unc'].append(sigma_unc)
-            fit_info['chi2_fits'].append(float(chi2))
-            fit_info['chi2_over_ndf_fits'].append(float(chi2)/ndf)
-
-            signal_pars = fitter.get_signal_pars()
-            signal_pars_uncs = fitter.get_signal_pars_uncs()
-
-            for i_sgn_func, (func_dict, func_dict_unc) in enumerate(zip(signal_pars, signal_pars_uncs)):
-                for (par_name, val), (par_name, unc) in zip(func_dict.items(), func_dict_unc.items()):
-
-                    key_val = f'par_sgn_{i_sgn_func}_{par_name}'
-                    key_unc = f'par_sgn_{i_sgn_func}_{par_name}_unc'
-
-                    # ✅ Initialize only once (not per pt bin)
-                    if key_val not in fit_info:
-                        print(f"Initializing fit_info for {key_val}\n")
-                        fit_info[key_val] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
-                        fit_info[key_unc] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
-
-                    fit_info[key_val][ipt] = val
-                    fit_info[key_unc][ipt] = unc
-
-        bkg_pars = fitter.get_bkg_pars()
-        bkg_pars_uncs = fitter.get_bkg_pars_uncs()
-            
-        for i_bkg_func, (func_dict, func_dict_unc) in enumerate(zip(bkg_pars, bkg_pars_uncs)):
+        for i_sgn_func, (func_dict, func_dict_unc, label) in enumerate(zip(signal_pars, signal_pars_uncs, sgn_labels)):
             for (par_name, val), (par_name, unc) in zip(func_dict.items(), func_dict_unc.items()):
+                # print(f"Initializing fit_info for i_sgn_func {i_sgn_func}, par_name {par_name}\n")
+                fit_info[f'{label}_par_sgn_{i_sgn_func}_{par_name}'] = val
+                fit_info[f'{label}_par_sgn_{i_sgn_func}_{par_name}_unc'] = unc
 
-                key_val = f'par_bkg_{i_bkg_func}_{par_name}'
-                key_unc = f'par_bkg_{i_bkg_func}_{par_name}_unc'
+    print(f"Getting background parameters for pt bin {pt_min} - {pt_max} GeV/c")
+    bkg_pars = fitter.get_bkg_pars()
+    bkg_pars_uncs = fitter.get_bkg_pars_uncs()
 
-                # ✅ Initialize only once (not per pt bin)
-                if key_val not in fit_info:
-                    print(f"Initializing fit_info for {key_val}\n")
-                    fit_info[key_val] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
-                    fit_info[key_unc] = [0.0] * len(config_file['ry_extraction']['pt_bins'])
+    for i_bkg_func, (func_dict, func_dict_unc, label) in enumerate(zip(bkg_pars, bkg_pars_uncs, bkg_labels)):
+        for (par_name, val), (par_name, unc) in zip(func_dict.items(), func_dict_unc.items()):
+            # print(f"Setting fit_info for {par_name} at ipt {ipt}, val: {val}, unc: {unc}\n")
+            fit_info[f'{label}_par_bkg_{i_bkg_func}_{par_name}'] = val
+            fit_info[f'{label}_par_bkg_{i_bkg_func}_{par_name}_unc'] = unc
 
-                print(f"Setting fit_info for {key_val} at ipt {ipt}, val: {val}, unc: {unc}\n")
-                fit_info[key_val][ipt] = val
-                fit_info[key_unc][ipt] = unc
+    # print(f"Storing fit results in {outfile_name}, folder {pt_label}\n")
+    fitter.dump_to_root(outfile_name, option="update", folder=pt_label)
 
-        fitter.dump_to_root(outfile_name, option="update", folder=pt_label)
-
-    file_root = uproot.update(outfile_name)
-    for par in fit_info.keys():
-        file_root[f"h_{par}"] = create_hist(pt_lims, fit_info[par], fit_info[par+'_unc'] if par+'_unc' in fit_info.keys() \
-                                                                    else [0.]*len(fit_info[par]))
-
-    file_root.close()
     return fit_info
 
 if __name__ == "__main__":
@@ -430,62 +374,110 @@ if __name__ == "__main__":
     with open(args.cfgfile, 'r', encoding='utf8') as ymlfitConfigFile:
         config_file = yaml.load(ymlfitConfigFile, yaml.FullLoader)
 
-    particleTit, mass_axis_label, decay, massForFit, massSecPeak, massSecPeakLabel = get_particle_info(config_file["Dmeson"])
+    _, mass_axis_label, decay, _, _, _ = get_particle_info(config_file["Dmeson"])
 
     # Retrieve config file for fit
     config_fit = copy.deepcopy(config_file)
 
-    # Perform std fit
-    outfile_name = os.path.join(os.path.dirname(os.path.dirname(args.infile)), 'rawyields',
-                                os.path.basename(args.infile).replace('proj', 'rawyield'))
-    with open(f"{os.path.dirname(outfile_name)}/config.yml", 'w', encoding='utf8') as ymlfitConfigFilePrefit:
-        yaml.dump(config_fit, ymlfitConfigFilePrefit, default_flow_style=None, sort_keys=False)
-    fit_info = get_raw_yields(config_fit, args.infile, outfile_name, mass_axis_label, fit_type='fit')
+    # Create outfile name and store fit config
+    outfile = args.infile.replace('proj', 'rawyield')
+    ofile = uproot.recreate(outfile)
+    ofile.close()
+    # with open(f"{os.path.dirname(outfile)}/config.yml", 'w', encoding='utf8') as ymlfitConfigFilePrefit:
+    #     yaml.dump(config_fit, ymlfitConfigFilePrefit, default_flow_style=None, sort_keys=False)
 
-    print(f"\n\nFinal fit info collected: {fit_info}\n\n")
+    # Eventually prepare config file for postfit (signal parameters free)
+    if config_file['ry_setup'].get('postfit_sgn'):
+        config_file_postfit = copy.deepcopy(config_fit)
+        outfile_postfit = args.infile.replace('proj', 'rawyield_postfit')
+        os.makedirs(os.path.dirname(outfile_postfit), exist_ok=True)
+        ofile_postfit = uproot.recreate(outfile_postfit)
+        ofile_postfit.close()
+
+    # Store fit info
+    fit_infos, postfit_infos = {}, {}
+
+    corr_bkg_file_path = outfile.replace('rawyield', 'corrbkg')
+
+    pt_lims = []
+    cfg_ry = config_file['ry_setup']
+    pt_min, pt_max = cfg_ry['pt_range'][0], cfg_ry['pt_range'][1]
+    pt_lims = [cfg_ry['pt_range'][0], cfg_ry['pt_range'][1]]
+
+    print(f"Fitting pt bin: {pt_min} - {pt_max} GeV/c")
+    pt_label = f"pt_{int(pt_min*10)}_{int(pt_max*10)}"
+
+    # Get data histogram
+    data = get_data_to_fit(args.infile, pt_label, config_file['input_type'])
+
+    # Produce function labels and perform fit
+    sgn_labels, bkg_labels = produce_func_labels(config_file, decay)
+    pt_fit_info = get_raw_yields(cfg_ry, config_file, data, outfile, corr_bkg_file_path, mass_axis_label, bkg_labels, sgn_labels)
+
+    for key in pt_fit_info.keys():
+        if key not in fit_infos:
+            fit_infos[key] = 0.
+        fit_infos[key] = pt_fit_info[key]
 
     # Eventually perform postfit (signal parameters all free) if requested
-    if config_file['ry_extraction'].get('postfit_sgn'):
-        cfg_postfit = copy.deepcopy(config_fit)
-        for ipt, (pt_cfg_postfit, pt_cfg_original) in enumerate(zip(cfg_postfit['ry_extraction']['pt_bins'], \
-                                                                    config_fit['ry_extraction']['pt_bins'])):
-            pt_cfg_postfit['init_pars']['fix_sgn_from_file'] = []
-            pt_cfg_postfit['init_pars']['init_pars_sgn'] = []
-            pt_cfg_postfit['init_pars']['fix_pars_sgn'] = []
-            pt_cfg_postfit['init_pars']['init_pars_bkg'] = []
+    if cfg_ry.get('postfit_sgn'):
+        cfg_postfit = copy.deepcopy(config_file_postfit['ry_setup'])
+        cfg_postfit['init_pars']['fix_sgn_from_file'] = []
+        cfg_postfit['init_pars']['init_pars_sgn'] = []
+        cfg_postfit['init_pars']['fix_pars_sgn'] = []
+        cfg_postfit['init_pars']['init_pars_bkg'] = []
 
-        outfile_name = os.path.join(os.path.dirname(os.path.dirname(args.infile)),
-                                    'rawyields', 'postfit',
-                                    os.path.basename(args.infile).replace('proj', 'rawyield'))
-        os.makedirs(os.path.dirname(outfile_name), exist_ok=True)
-
-
-        for par_full_name, par_val in fit_info.items():
+        tol_param = cfg_postfit['postfit_param_tol']
+        tol_frac = cfg_postfit['postfit_sgn_bkg_frac_tol']
+        for par_full_name, par_val in pt_fit_info.items():
+                
+            # Skip uncertainties and fit results quantities
             if 'unc' in par_full_name or 'par_' not in par_full_name:
                 continue
-            print(f"par_full_name: {par_full_name}")
-            _, func_type, func_idx, par_name = par_full_name.split('_', 3)
-            func_idx = int(func_idx)
-            for ipt in range(len(config_fit['ry_extraction']['pt_bins'])):
-                val = float(par_val[ipt])
-                tol = cfg_postfit['ry_extraction'].get('postfit_tolerance', 0.1)
-                min_val = val - tol * val if val >= 0 else val + tol * val
-                max_val = val + tol * val if val >= 0 else val - tol * val
-                
-                if 'sgn_0_' in par_full_name:
-                    print(f"Adding to init_pars_sgn for func_idx {func_idx}")
-                    cfg_postfit['ry_extraction']['pt_bins'][ipt]['init_pars']['init_pars_sgn'].append([func_idx, par_name, val, [min_val, max_val]])
-                elif '_c' in par_full_name or f'bkg_0_frac' in par_full_name:
-                    print(f"Adding to init_pars_bkg")
-                    cfg_postfit['ry_extraction']['pt_bins'][ipt]['init_pars']['init_pars_bkg'].append([par_name, val, [min_val, max_val]])
-                else:
-                    if 'bkg' in func_type and 'frac' not in par_name:
-                        print(f"Adding to fix_pars_bkg")
-                        cfg_postfit['ry_extraction']['pt_bins'][ipt]['init_pars']['fix_pars_bkg'].append([func_idx, par_name, val])
-                    else:
-                        print(f"Adding to fix_pars_sgn")
-                        cfg_postfit['ry_extraction']['pt_bins'][ipt]['init_pars']['fix_pars_sgn'].append([func_idx, par_name, val])
 
-        with open(f"{os.path.dirname(outfile_name)}/config.yml", 'w', encoding='utf8') as ymlfitConfigFilePrefit:
+            _, _, func_type, func_idx, par_name = par_full_name.split('_', 4)
+            func_idx = int(func_idx)
+            val = par_val
+            cfg_init_pars_postfit = cfg_postfit['init_pars']
+
+            tol = tol_frac if 'frac' in par_name else tol_param
+            min_val = val - tol * val if val >= 0 else val + tol * val
+            max_val = val + tol * val if val >= 0 else val - tol * val
+            print(f"par_full_name: {par_full_name}, func_type: {func_type}, func_idx: {func_idx}, " \
+                  f"par_name: {par_name}, val: {val}, min_val: {min_val}, max_val: {max_val}")
+
+            if f'sgn_{len(sgn_labels)-1}_frac' in par_full_name:
+                # tighter constraint on the signal fraction, we know it well from prefit
+                print(f"Adding to init_pars_sgn for func_idx {func_idx} with tighter tolerance")
+                cfg_init_pars_postfit['init_pars_sgn'].append([func_idx, "frac", val, [min_val, max_val]])
+            else:
+                # Leave free the last signal function (the main one)
+                if f'sgn_{len(sgn_labels)-1}_' in par_full_name:
+                    print(f"Adding to init_pars_sgn for func_idx {func_idx}")
+                    cfg_init_pars_postfit['init_pars_sgn'].append([func_idx, par_name, val, [min_val, max_val]])
+                elif '_c' in par_full_name:
+                    print(f"Adding to init_pars_bkg")
+                    cfg_init_pars_postfit['init_pars_bkg'].append([par_name, val, [min_val, max_val]])
+                else:
+                    # cfg_init_pars_postfit['init_pars_sgn'].append([func_idx, par_name, val, [min_val, max_val]])
+                    logger(f"Parameter {par_name} not constrained!", "WARNING")
+
+        with open(f"{os.path.dirname(outfile_postfit)}/config.yml", 'w', encoding='utf8') as ymlfitConfigFilePrefit:
             yaml.dump(cfg_postfit, ymlfitConfigFilePrefit, default_flow_style=None)
-        get_raw_yields(cfg_postfit, args.infile, outfile_name, mass_axis_label)
+        pt_fit_info_postfit = get_raw_yields(cfg_ry, cfg_postfit, data, outfile_postfit, corr_bkg_file_path, mass_axis_label, bkg_labels, sgn_labels)
+
+        for key in pt_fit_info_postfit.keys():
+            if key not in postfit_infos:
+                postfit_infos[key] = 0.
+            postfit_infos[key] = pt_fit_info_postfit[key]
+
+    file_std_fit = uproot.update(outfile)
+    for par in fit_infos.keys():
+        file_std_fit[f"h_{par}"] = create_hist(pt_lims, fit_infos[par], fit_infos[par+'_unc'] if par+'_unc' in fit_infos.keys() else 0.)
+    file_std_fit.close()
+
+    if cfg_ry.get('postfit_sgn'):
+        file_postfit = uproot.update(outfile_postfit)
+        for par in postfit_infos.keys():
+            file_postfit[f"h_{par}"] = create_hist(pt_lims, postfit_infos[par], postfit_infos[par+'_unc'] if par+'_unc' in postfit_infos.keys() else 0.)
+        file_postfit.close()

@@ -112,7 +112,8 @@ def get_particle_info(particleName):
         massAxisTit = r"$M(\mathrm{\pi^+ K^- \pi^+})\ \mathrm{(GeV/}c^2)$"
         # massAxisTit = rf"$M(\mathrm{K^{-}pi^{+}#pi^{+}})$ (GeV/$c^2$)" #'#it{M}(K#pi#pi) (GeV/#it{c}^{2})'
         massForFit = ROOT.TDatabasePDG.Instance().GetParticle(411).Mass()
-        decay = 'D^{+} #rightarrow K^{#minus}#pi^{+}#pi^{+}'
+        decay = "DplusToPiKPi"
+        # decay = r"$\mathrm{D^+ \rightarrow \pi^+ K^- \pi^+}$"
         massSecPeak = ROOT.TDatabasePDG.Instance().GetParticle(413).Mass() # D* mass
         secPeakLabel = 'D^{*+}'
     elif particleName == 'Ds':

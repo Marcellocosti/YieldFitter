@@ -150,7 +150,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'flag_bhad': 5,
         }
 
-    if data_type == "DsTask":
+    elif data_type == "DsTask":
         ### Data
         axes_dict['Data'] = {
             'Mass': 0,
@@ -258,27 +258,27 @@ def get_data_model_dicts(config, data_type="DplusTask"):
     print(f"\n\nData model dicts for data_type {data_type}: {axes_dict}")
     return axes_dict
 
-def get_pt_preprocessed_inputs(config, iPt, is_sparse_data_type):
+def get_pt_preprocessed_inputs(config, pt_label, is_sparse_data_type):
 
     logger("Loading preprocessed inputs", level='INFO')
 
     if is_sparse_data_type:
-        inputsData, inputsReco, inputsGen, axes_dict = get_pt_preprocessed_sparses(config, iPt)
+        print("Getting sparses")
+        inputsData, inputsReco, inputsGen, axes_dict = get_pt_preprocessed_sparses(config, pt_label)
     else:
-        inputsData, inputsReco, inputsGen, axes_dict = get_pt_preprocessed_trees(config, iPt)
+        print("Getting trees")
+        inputsData, inputsReco, inputsGen, axes_dict = get_pt_preprocessed_trees(config, pt_label)
 
     return inputsData, inputsReco, inputsGen, axes_dict
 
-def get_pt_preprocessed_trees(config, iPt):
+def get_pt_preprocessed_trees(config, pt_label):
 
     inputsData, inputsReco, inputsGen, col_dict = {}, {}, {}, {}
 
     pre_cfg = config['preprocess']
     col_dict = get_data_model_dicts(config, data_type="PreprocessedTree")
-    ptmin = config["ptbins"][iPt]
-    ptmax = config["ptbins"][iPt+1]
 
-    infileprep = f"{config['outdir']}/preprocess/AO2D_pt_{int(ptmin*10)}_{int(ptmax*10)}.root"
+    infileprep = f"{config['outdir']}/preprocess/AO2D_{pt_label}.root"
 
     if config["operations"].get("proj_data"):
         for key, _ in pre_cfg["data"].items():
@@ -302,26 +302,24 @@ def get_pt_preprocessed_trees(config, iPt):
 
     return inputsData, inputsReco, inputsGen, col_dict
 
-def get_pt_preprocessed_sparses(config, iPt):
+def get_pt_preprocessed_sparses(config, pt_label):
 
     inputsData, inputsReco, inputsGen, axes_dict = {}, {}, {}, {}
 
     pre_cfg = config['preprocess']
     axes_dict['Data'] = {ax: iax for iax, ax in enumerate(pre_cfg['axes_data'].keys())}
-    ptmin = config["ptbins"][iPt]
-    ptmax = config["ptbins"][iPt+1]
 
     if config.get("outdirPrep") and config["outdirPrep"] != "":
-        infileprep = TFile(f"{config['outdirPrep']}/preprocess/AnalysisResults_pt_{int(ptmin*10)}_{int(ptmax*10)}.root")
+        infileprep = TFile(f"{config['outdirPrep']}/preprocess/AnalysisResults_{pt_label}.root")
     else:
-        infileprep = TFile(f"{config['outdir']}/preprocess/AnalysisResults_pt_{int(ptmin*10)}_{int(ptmax*10)}.root")
+        infileprep = TFile(f"{config['outdir']}/preprocess/AnalysisResults_{pt_label}.root")
 
-    if config["operations"].get("proj_data"):
+    if config["operations"].get("do_proj_data"):
         for key, _ in pre_cfg["data"].items():
             # print(f"infileprep.ls(): {infileprep.ls()}")
             inputsData[f'_{key}'] = infileprep.Get(f'Data__{key}/hSparseMass')
 
-    if config["operations"].get("proj_mc"):
+    if config["operations"].get("do_proj_mc"):
         subdir = infileprep.Get("MC/Reco")
         for key in subdir.GetListOfKeys():
             obj = key.ReadObj()
