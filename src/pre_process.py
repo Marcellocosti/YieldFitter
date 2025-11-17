@@ -280,8 +280,8 @@ def process_pt_bin_mc_sparses(config, ptmin, ptmax, centmin, centmax, bkg_max_cu
 def pre_process_data_mc(config):
 
     # Load the configuration
-    ptmins = config['ptbins'][:-1]
-    ptmaxs = config['ptbins'][1:] 
+    ptmins = config['preprocess']['ptbins'][:-1]
+    ptmaxs = config['preprocess']['ptbins'][1:] 
     centmin, centmax = get_centrality_bins(config['centrality'])[1]
 
     # Load the inputs

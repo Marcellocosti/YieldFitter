@@ -7,7 +7,6 @@ import time
 import subprocess
 import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
-# from concurrent.futures import ProcessPoolExecutor
 work_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f"{work_dir}/utils")
 from utils import check_dir, logger
@@ -151,15 +150,6 @@ def run_cut_variation(config, pt_config_path, operations, nworkers, outdir):
 	os.makedirs(f"{outdir}/projs", exist_ok=True)
 	project_cutvar(pt_config_path, outdir, nworkers, mCutSets)
 
-	# #___________________________________________________________________________________________________________________________
-	# # Correlated bkgs templates
-	# if operations.get('do_corr_bkgs', False):
-	# 	logger("Computing corr. bkgs for cut variation", level="INFO")
-	# 	os.makedirs(f"{outdir}/corrbkgs", exist_ok=True)
-	# 	produce_corr_bkgs_templs_cutvar(pt_config_path, outdir, nworkers, mCutSets)
-	# else:
-	# 	logger("Correlated bkgs will not be included", level="WARNING")
-
 	#___________________________________________________________________________________________________________________________
 	# Efficiencies
 	logger("Computing efficiencies for cut variation", level="INFO")
@@ -222,18 +212,6 @@ def extract_raw_yields(config):
 	else:
 		logger("Projections will not be performed", level="WARNING")
 
-	# #___________________________________________________________________________________________________________________________
-	# # Correlated bkgs templates
-	# if operations.get('do_corr_bkgs', False):
-	# 	with ThreadPoolExecutor(max_workers=1) as exe:
-	# 		processes = []
-	# 		for pt_cfg_path, cfg in pt_bin_configs.items():
-	# 			processes.append(exe.submit(produce_corr_bkgs_templs, pt_cfg_path, os.path.dirname(pt_cfg_path)))
-	# 		for proc in as_completed(processes):
-	# 			proc.result()   # raises exceptions if any
-	# else:
-	# 	logger("Correlated bkgs will not be included", level="WARNING")
-
 	#___________________________________________________________________________________________________________________________
 	# Efficiencies
 	if operations.get('do_calc_eff', False):
@@ -250,15 +228,7 @@ def extract_raw_yields(config):
 	#___________________________________________________________________________________________________________________________
 	# Raw Yield extraction
 	if operations.get('do_get_ry', False):
-		# print(f"\033[32m Extracting raw yields for central value ...\033[0m")
-		# proj_central = f"{outdir}/proj.root"
-		# cmd = (
-		# 	f"python3 {paths['GetRawYields']} {pt_config_path} {proj_central}"
-		# )
-		# logger(f"{cmd}", level="COMMAND")
-		# os.system(cmd)
-		with ThreadPoolExecutor(max_workers=1) as exe:
-		# with ThreadPoolExecutor(max_workers=len(pt_bin_configs.keys())) as exe:
+		with ThreadPoolExecutor(max_workers=len(pt_bin_configs.keys())) as exe:
 			processes = []
 			for pt_cfg_path, cfg in pt_bin_configs.items():
 				processes.append(exe.submit(get_raw_yields, pt_cfg_path, os.path.dirname(pt_cfg_path)))
