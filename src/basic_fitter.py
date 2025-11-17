@@ -216,10 +216,13 @@ def fit(input_config):
                 add_info_on_canvas(axs, "upper left", "pp", pt_min, pt_max)
                 fig_res = fitter.plot_raw_residuals(figsize=(8, 8), style="ATLAS", axis_title=r"$M_\mathrm{K\pi\pi}$ (GeV/$c^2$)")
 
+                fig_pulls = fitter.plot_std_residuals(style="ATLAS", figsize=(8, 8), axis_title=r"$M_\mathrm{K\pi\pi}$ (GeV/$c^2$)")
+
                 outdir_figs = f"{os.path.dirname(outfile_name)}/{pt_label}"
                 os.makedirs(outdir_figs, exist_ok=True)
                 fig.savefig(f"{outdir_figs}/massfit.pdf")
                 fig_res.savefig(f"{outdir_figs}/massfitres.pdf")
+                fig_pulls.savefig(f"{outdir_figs}/massfitpulls.pdf")
                 print(f"Saved fit figures in {outdir_figs}/massfit.pdf and {outdir_figs}/massfitres.pdf")
 
         outfile = TFile(outfile_name, "update")

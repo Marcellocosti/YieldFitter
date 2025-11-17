@@ -9,6 +9,7 @@ import re
 import array
 import ROOT  # pylint: disable=import-error
 from ROOT import TFile, TH1F
+import argparse
 
 ALL_PT_FILES_TO_MERGE = ['eff', 'rawyield']
 
@@ -77,6 +78,8 @@ def merge_pt_bins(folder):
     outfile.Close()
     print(f"Merged file saved to {os.path.join(folder, 'summary.root')}")
 
-
 if __name__ == '__main__':
-    merge_pt_bins('/home/mdicosta/FlowDplus/CorrBkgs/ppref/data/fits/dev_effs')
+    parser = argparse.ArgumentParser(description="Arguments")
+    parser.add_argument('target_dir', metavar='text', default='./', help='target output directory')
+    args = parser.parse_args()
+    merge_pt_bins(args.target_dir)

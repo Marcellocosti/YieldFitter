@@ -76,13 +76,13 @@ preprocess:
     axes_data: {
         'Mass': 1,
         'score_bkg': 1,
-        'score_FD': 1
+        'score_fd': 1
     }
     # axes_reco: {
     #     'Mass': 1, 
     #     'Pt': 1, 
     #     'score_bkg': 1, 
-    #     'score_FD': 1
+    #     'score_fd': 1
     # }
     # axes_gen: {
     #     'Pt': 1, 

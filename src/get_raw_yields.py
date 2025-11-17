@@ -10,6 +10,7 @@ from ROOT import TFile, TH1, TH1D, TH1F # pylint: disable=import-error,no-name-i
 script_dir = os.path.dirname(os.path.realpath(__file__))
 os.sys.path.append(os.path.join(script_dir, '..', 'utils'))
 from fit_utils import rebin_histo, get_data_to_fit, create_hist, add_info_on_canvas
+from correlated_bkgs import get_corr_bkg
 from utils import logger, get_centrality_bins, get_particle_info
 import zfit
 from flarefly.data_handler import DataHandler
@@ -18,29 +19,14 @@ import uproot
 import copy
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # pylint: disable=wrong-import-position
 
-def get_corr_bkg_template(path, input_type, file_path):
-    
-    if input_type == 'Tree':
-        print(f"Getting corr bkg template from tree {path}treeMass in file {file_path}")
-        with uproot.open(corr_bkg_file_path) as f:
-            tree = f[f"{path}treeMass"]
-        return tree
-    else:
-        file = TFile.Open(file_path, "READ")
-        print(f"Getting corr bkg template from histogram {path}hMass_smooth in file {file_path}")
-        hist = file.Get(f"{path}hMass_smooth")
-        if not isinstance(hist, TH1):
-            logger(f"---> No smoothed hist found, getting only hMass", "WARNING")
-            hist = file.Get(f"{path}hMass")
-        hist.SetDirectory(0)
-        return hist
-
-def set_fitter_init_pars(full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs, n_sgn_functs):
+def set_fitter_init_pars(fitter, cfg, pt_min, pt_max, n_bkg_functs, n_sgn_functs):
     print(f"\n\nSetting fitter initial parameters for pt range {pt_min} - {pt_max} GeV/c")
 
+    cfg_init_pars = cfg["init_pars"]
+
     # First init, then eventually override with fix
-    if cfg.get("init_pars_sgn"):
-        for setting in cfg["init_pars_sgn"]:
+    if cfg_init_pars.get("init_pars_sgn"):
+        for setting in cfg_init_pars["init_pars_sgn"]:
             sgn_func_idx = setting[0]
             par_name = setting[1]
             par_val = setting[2]
@@ -48,32 +34,32 @@ def set_fitter_init_pars(full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs, n_
             fitter.set_signal_initpar(sgn_func_idx, par_name, par_val, limits=par_lims)
             print(f"---> setting sgn par {par_name} to value {par_val}, limits {par_lims}")
 
-    if cfg.get("init_pars_bkg"):
-        for setting in cfg["init_pars_bkg"]:
+    if cfg_init_pars.get("init_pars_bkg"):
+        for setting in cfg_init_pars["init_pars_bkg"]:
             par_name = setting[0]
             par_val = setting[1]
             par_lims = setting[2]
             fitter.set_background_initpar(n_bkg_functs-1, par_name, par_val, limits=par_lims)
             print(f"---> setting bkg par {par_name} to value {par_val}, limits {par_lims}")
 
-    if cfg.get("fix_pars_sgn"):
-        for setting in cfg["fix_pars_sgn"]:
+    if cfg_init_pars.get("fix_pars_sgn"):
+        for setting in cfg_init_pars["fix_pars_sgn"]:
             sgn_func_idx = setting[0]
             par_name = setting[1]
             par_val = setting[2]
             fitter.set_signal_initpar(sgn_func_idx, par_name, par_val, fix=True)
             print(f"---> fixing sgn par {par_name} to value {par_val}")
 
-    if cfg.get("fix_pars_bkg"):
-        for setting in cfg["fix_pars_bkg"]:
+    if cfg_init_pars.get("fix_pars_bkg"):
+        for setting in cfg_init_pars["fix_pars_bkg"]:
             par_name = setting[0]
             par_val = setting[1]
             fitter.set_background_initpar(n_bkg_functs-1, par_name, par_val, fix=True)
             print(f"---> fixing bkg par {par_name} to value {par_val}")
 
-    if cfg.get("fix_sgn_from_file"):
+    if cfg_init_pars.get("fix_sgn_from_file"):
         # Initialization from MC fits from file
-        for setting in cfg["fix_sgn_from_file"]:
+        for setting in cfg_init_pars["fix_sgn_from_file"]:
             sgn_func_idx = setting[0]
             par_names = setting[1]
             file_pars = setting[2]
@@ -91,8 +77,8 @@ def set_fitter_init_pars(full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs, n_
                     # Shift the mean or add smearing to compensate data-MC discrepancies
                     # no sgn_func_idx == 0 as this is only for corr bkgs
                     shift, smear = 0.0, 0.0
-                    if full_cfg.get('corr_bkgs') and sgn_func_idx != 0:
-                        cfg_corrbkgs = full_cfg['corr_bkgs']
+                    if cfg.get('corr_bkgs') and sgn_func_idx != (n_sgn_functs-1):
+                        cfg_corrbkgs = cfg['corr_bkgs']
                         if cfg_corrbkgs.get('shift_mass') and 'mu' in par_name:
                             if isinstance(cfg_corrbkgs["shift_mass"], float):
                                 shift = cfg_corrbkgs["shift_mass"]
@@ -116,7 +102,7 @@ def set_fitter_init_pars(full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs, n_
                             elif isinstance(cfg_corrbkgs["smear_mass"], list):
                                 smear = cfg_corrbkgs["smear_mass"]
                             else:
-                                logger(f"Taking mass shifts from {cfg_corrbkgs['smear_mass']}", "INFO")
+                                logger(f"Taking mass smears from {cfg_corrbkgs['smear_mass']}", "INFO")
                                 smear_file = TFile.Open(cfg_corrbkgs['smear_mass'], "READ")
                                 smear_histo = smear_file.Get("delta_sigma_data_mc")
                                 smear_histo.SetDirectory(0)
@@ -129,99 +115,94 @@ def set_fitter_init_pars(full_cfg, fitter, cfg, pt_min, pt_max, n_bkg_functs, n_
                             par_val += smear
                     print(f"---> fixing signal parameter {par_name} to value {par_val}, shift {shift}, smear {smear}")
                     fitter.set_signal_initpar(sgn_func_idx, par_name, par_val, fix=True)
-                    
+
                 except Exception as e:
                     print(f"        Parameter {par_name} not present!")
 
             par_file.Close()
 
-def set_corr_bkgs(fitter, corr_bkgs_templs, sgn_bkgs_templs, cfg):
-
-    sgn_func_idx = len(cfg['sgn_func'])
-    bkg_func_idx = 0
+def set_corr_bkgs_fracs(fitter, corr_bkg_templs, sgn_bkgs_templs, cfg):
+    bkg_pdf_idx = 0
     for corr_bkg in cfg["corr_bkgs"]['channels']:
         chn = corr_bkg['name']
+        print(f"\nSetting correlated bkg source {chn}")
         if corr_bkg.get('sgn_func'):
-            if corr_bkg.get('fix_to'):
-                pdf_name = corr_bkg['fix_to']
-                frac = sgn_bkgs_templs[pdf_name]['frac']
-                sgn_func_idx = sgn_bkgs_templs[pdf_name]['idx']
-                print(f"Setting correlated bkg function {sgn_func_idx} fraction " \
-                      f"to {frac} wrt signal pdf no. {pdf_idx}")
-                fitter.fix_signal_frac_to_signal_pdf(sgn_func_idx, pdf_idx, frac)
+            if corr_bkg.get('fix_to') or corr_bkg.get('init_to'):
+                pdf_idx = sgn_bkgs_templs[chn]['idx']
+                anchor_pdf_name = corr_bkg.get('fix_to', corr_bkg.get('init_to'))
+                anchor_pdf_idx = sgn_bkgs_templs[anchor_pdf_name]['idx']
+                frac = sgn_bkgs_templs[chn]['frac'] / sgn_bkgs_templs[anchor_pdf_name]['frac']
+                print(f"frac of chn {chn} wrt anchor {anchor_pdf_name}: {sgn_bkgs_templs[chn]['frac']} / {sgn_bkgs_templs[anchor_pdf_name]['frac']} = {frac}")
+                
+                if corr_bkg.get('fix_to'):
+                    print(f"Fixing correlated bkg function {pdf_idx} fraction " \
+                        f"to {frac} wrt signal pdf no. {anchor_pdf_idx}")
+                    fitter.fix_signal_frac_to_signal_pdf(pdf_idx, anchor_pdf_idx, frac)
+                else:
+                    print(f"Setting correlated bkg function {pdf_idx} fraction " \
+                        f"to {frac} wrt signal pdf no. {anchor_pdf_idx}")
+                    fitter.set_signal_initpar(pdf_idx, "frac", frac, limits=[0., 1.])
             else:
-                logger(f"Signal function for correlated bkg source {chn} will be free", level="WARNING")
-
-            sgn_func_idx += 1
+                logger(f"Signal function for correlated bkg source {chn} not fixed nor initialized!", level="WARNING")
             continue
 
         if corr_bkg.get('bkg_func'):
-            data_hdl = corr_bkgs_templs[chn]['data_hdl']
+            data_hdl = corr_bkg_templs[chn]['data_hdl']
             if corr_bkg['bkg_func'] != 'kde_grid' and corr_bkg['bkg_func'] != 'hist':
                 logger(f"Background function for correlated bkg source {chn} not 'kde_grid' or 'hist'", level="ERROR")
 
             if corr_bkg['bkg_func'] == 'kde_grid':
                 print(f"Setting kde for source {chn}")
-                fitter.set_background_kde(bkg_func_idx, data_hdl)
+                fitter.set_background_kde(bkg_pdf_idx, data_hdl)
             else:
                 print(f"Setting histo for source {chn}")
-                fitter.set_background_template(bkg_func_idx, data_hdl)
+                fitter.set_background_template(bkg_pdf_idx, data_hdl)
 
             if corr_bkg.get('fix_to'):
                 anchor_pdf_name = corr_bkg['fix_to']
-                print(f"\nanchor_pdf_name: {anchor_pdf_name}\n")
-                frac = corr_bkgs_templs[chn]['frac'] / corr_bkgs_templs[anchor_pdf_name]['frac']
-                pdf_idx = corr_bkgs_templs[anchor_pdf_name]['idx']
+                print(f"frac of chn {chn} wrt anchor {anchor_pdf_name}: {corr_bkg_templs[chn]['frac']} / {corr_bkg_templs[anchor_pdf_name]['frac']}")
+                frac = corr_bkg_templs[chn]['frac'] / corr_bkg_templs[anchor_pdf_name]['frac']
+                print(f"frac of chn {chn} wrt anchor {anchor_pdf_name}: {corr_bkg_templs[chn]['frac']} / {corr_bkg_templs[anchor_pdf_name]['frac']} = {frac}")
+                pdf_idx = corr_bkg_templs[anchor_pdf_name]['idx']
                 if anchor_pdf_name == 'signal':
-                    print(f"Setting correlated bkg template function {bkg_func_idx} fraction " \
+                    print(f"Setting correlated bkg template function {bkg_pdf_idx} fraction " \
                           f"to {frac} wrt signal pdf no. {pdf_idx}")
-                    fitter.fix_bkg_frac_to_signal_pdf(bkg_func_idx, pdf_idx, frac)
+                    fitter.fix_bkg_frac_to_signal_pdf(bkg_pdf_idx, pdf_idx, frac)
                 else:
-                    print(f"Setting correlated bkg template function {bkg_func_idx} fraction " \
+                    print(f"Setting correlated bkg template function {bkg_pdf_idx} fraction " \
                           f"to {frac} wrt bkg pdf no. {pdf_idx}")
-                    fitter.fix_bkg_frac_to_bkg_pdf(bkg_func_idx, pdf_idx, frac)
+                    fitter.fix_bkg_frac_to_bkg_pdf(bkg_pdf_idx, pdf_idx, frac)
 
             elif corr_bkg.get('init_to'):
                 pdf_name = corr_bkg['init_to']
-                idx = corr_bkgs_templs[pdf_name]['idx']
-                frac = corr_bkgs_templs[pdf_name]['frac']
+                idx = corr_bkg_templs[pdf_name]['idx']
+                frac = corr_bkg_templs[pdf_name]['frac']
                 if pdf_name == 'signal':
-                    frac_sgn = corr_bkgs_templs['signal']['frac']
-                    print(f"Setting correlated bkg template function {bkg_func_idx} initial fraction " \
+                    frac_sgn = corr_bkg_templs['signal']['frac']
+                    print(f"Setting correlated bkg template function {bkg_pdf_idx} initial fraction " \
                         f"to {frac} wrt signal pdf no. {pdf_idx}")
                     fitter.set_background_initpar(idx, "frac", frac/frac_sgn, limits=[0., 1.])
             else:
-                logger(f"Background function for correlated bkg source {corr_bkg} without 'fix_to' or 'init_to' key", level="ERROR")
-            
-            bkg_func_idx += 1
+                logger(f"Background function for correlated bkg source {corr_bkg} without 'fix_to' or 'init_to' key", level="WARNING")
+
+            bkg_pdf_idx += 1
             continue
 
-def perform_fit(pt_bin_cfg, corr_bkg_file_path, \
+def perform_fit(pt_bin_cfg, cfg_cutset, corr_bkg_file_path, \
                 data_hdl, pt_label, \
                 config_file, pt_min, pt_max, \
                 labels_bkg, labels_sgn):
 
+    if pt_bin_cfg.get("corr_bkgs"):
+        corr_bkg_file = TFile.Open(corr_bkg_file_path, 'read')
+
     # Add correlated bkg templates
-    corr_bkgs_templs, sgn_bkgs_templs = {}, {}
+    corr_bkg_templs, sgn_bkgs_templs = {}, {}
     bkg_functs, sgn_functs = [], []
     if pt_bin_cfg.get("corr_bkgs"):
 
         # Get the fraction
-        corr_bkg_file = TFile.Open(corr_bkg_file_path, 'read')
-        pt_subdir = corr_bkg_file.Get(pt_label)
-        hist_fractions = pt_subdir.Get("hWeights")
-        weights = {}
-        for i_bin in range(1, hist_fractions.GetNbinsX()+1):
-            weights[hist_fractions.GetXaxis().GetBinLabel(i_bin)] = hist_fractions.GetBinContent(i_bin)
-        hist_fractions.SetDirectory(0)
-        corr_bkg_file.Close()
         i_source_corr_bkg_sgn, i_source_corr_bkg_bkg = 0, 0
-        sgn_bkgs_templs['signal'] = {}
-        sgn_bkgs_templs['signal']['frac'] = weights[pt_bin_cfg["corr_bkgs"]['sgn_fin_state']]
-        sgn_bkgs_templs['signal']['idx'] = 0
-        corr_bkgs_templs['signal'] = {}
-        corr_bkgs_templs['signal']['frac'] = weights[pt_bin_cfg["corr_bkgs"]['sgn_fin_state']]
-        corr_bkgs_templs['signal']['idx'] = 0
         for i_source, corr_bkg_source in enumerate(pt_bin_cfg["corr_bkgs"]["channels"]):
             chn_name = corr_bkg_source['name']
 
@@ -230,44 +211,65 @@ def perform_fit(pt_bin_cfg, corr_bkg_file_path, \
                 sgn_bkgs_templs[chn_name] = {}
                 print(f"Using signal function for correlated bkg source {chn_name}")
                 sgn_functs.append(corr_bkg_source['sgn_func'])
-                sgn_bkgs_templs[chn_name]['frac'] = weights[chn_name]
-                sgn_bkgs_templs[chn_name]['idx'] = i_source_corr_bkg_sgn + len(pt_bin_cfg['sgn_func'])
+                _, sgn_bkgs_templs[chn_name]['frac'] = get_corr_bkg(cfg_cutset, corr_bkg_file, chn_name, pt_bin_cfg["fit_range"], pt_label, config_file['templ_features'], config_file['templ_type'])
+                sgn_bkgs_templs[chn_name]['idx'] = i_source_corr_bkg_sgn
                 i_source_corr_bkg_sgn += 1
                 continue
 
             print(f"Using MC template for correlated bkg source {chn_name}")
-            corr_bkgs_templs[chn_name] = {}
+            corr_bkg_templs[chn_name] = {}
             # Get the correlated bkg template (TTree or TH1)
-            corr_bkg_templ = get_corr_bkg_template(f"{pt_label}/{chn_name}/", config_file['input_type'], corr_bkg_file_path)
             if config_file['input_type'] == 'Tree':
-                df = tree.arrays(library="pd")
-                corr_bkgs_templs[chn_name]['frac'] = weights[chn_name]
-                corr_bkgs_templs[chn_name]['data_hdl'] = DataHandler(df, var_name="fM", limits=pt_bin_cfg["fit_range"], nbins=100)
+                corr_bkg_templs[chn_name]['tree'], corr_bkg_templs[chn_name]['frac'] = get_corr_bkg(cfg_cutset, corr_bkg_file, chn_name, pt_bin_cfg["fit_range"], pt_label, config_file['templ_features'], config_file['templ_type'])
+                df = corr_bkg_templs[chn_name]['tree'].arrays(library="pd")
+                corr_bkg_templs[chn_name]['data_hdl'] = DataHandler(df, var_name="fM", limits=pt_bin_cfg["fit_range"], nbins=100)
                 bkg_functs.append("kde_grid")
             else:
-                corr_bkgs_templs[chn_name]['frac'] = weights[chn_name]
-                corr_bkgs_templs[chn_name]['data_hdl'] = DataHandler(corr_bkg_templ, limits=pt_bin_cfg["fit_range"], rebin=pt_bin_cfg.get('rebin', 1))
+                corr_bkg_templs[chn_name]['hist'], corr_bkg_templs[chn_name]['frac'] = get_corr_bkg(cfg_cutset, corr_bkg_file, chn_name, pt_bin_cfg["fit_range"], pt_label, config_file['templ_features'], config_file['templ_type'])
+                corr_bkg_templs[chn_name]['data_hdl'] = DataHandler(corr_bkg_templs[chn_name]['hist'], limits=pt_bin_cfg["fit_range"], rebin=pt_bin_cfg.get('rebin', 1))
                 bkg_functs.append("hist")
 
-            corr_bkgs_templs[chn_name]['idx'] = i_source_corr_bkg_bkg
+            corr_bkg_templs[chn_name]['idx'] = i_source_corr_bkg_bkg
             i_source_corr_bkg_bkg += 1
+        # corr_bkg_file.Close()
 
-    bkg_functs = bkg_functs + pt_bin_cfg['ry_setup']['bkg_func']
-    sgn_functs = sgn_functs + pt_bin_cfg['ry_setup']['sgn_func']
+    sgn_bkgs_templs['signal'] = {}
+    sgn_bkgs_templs['signal']['idx'] = len(sgn_bkgs_templs)-1
+    corr_bkg_templs['signal'] = {}
+    corr_bkg_templs['signal']['idx'] = len(sgn_bkgs_templs)-1
+
+    if pt_bin_cfg.get("corr_bkgs"):
+        # corr_bkg_file = TFile.Open(corr_bkg_file_path, 'read')
+        _, sgn_frac = get_corr_bkg(cfg_cutset, corr_bkg_file, pt_bin_cfg["corr_bkgs"]['sgn_fin_state'], pt_bin_cfg["fit_range"], pt_label, config_file['templ_features'], config_file['templ_type'])
+        print(f"Signal fraction for correlated bkg source {pt_bin_cfg['corr_bkgs']['sgn_fin_state']}: {sgn_frac}")
+        # corr_bkg_file.Close()
+        sgn_bkgs_templs['signal']['frac'] = sgn_frac
+        corr_bkg_templs['signal']['frac'] = sgn_frac
+    bkg_functs = bkg_functs + pt_bin_cfg['bkg_func']
+    sgn_functs = sgn_functs + pt_bin_cfg['sgn_func']
+
     print(f"Using signal function: {sgn_functs} and background function: {bkg_functs}")
     print(f"Using signal labels: {labels_sgn} and background labels: {labels_bkg}")
     fitter = F2MassFitter(data_hdl, label_signal_pdf=labels_sgn, name_signal_pdf=sgn_functs,
                           name_background_pdf=bkg_functs, label_bkg_pdf=labels_bkg, name=pt_label)
 
-    print(f"pt_bin_cfg: {pt_bin_cfg}\n")
-
-    # Set reflection template
-    if pt_bin_cfg['ry_setup'].get("corr_bkgs"):
-        set_corr_bkgs(fitter, corr_bkgs_templs, sgn_bkgs_templs, pt_bin_cfg['ry_setup']["corr_bkgs"])
-    if pt_bin_cfg['ry_setup'].get("init_pars"):
-        set_fitter_init_pars(config_file, fitter, pt_bin_cfg['ry_setup']["init_pars"], pt_min, pt_max, len(bkg_functs), len(sgn_functs))
+    # Set corr bkgs template
+    if pt_bin_cfg.get("corr_bkgs"):
+        print(f"sgn_bkgs_templs: {sgn_bkgs_templs}\n")
+        set_corr_bkgs_fracs(fitter, corr_bkg_templs, sgn_bkgs_templs, pt_bin_cfg)
+    if pt_bin_cfg.get("init_pars"):
+        set_fitter_init_pars(fitter, pt_bin_cfg, pt_min, pt_max, len(bkg_functs), len(sgn_functs))
     # fitter.set_signal_initpar(sgn_func_idx, "frac", 0.2, limits=[0., 1.])
+    if pt_bin_cfg['sgn_func'] == ['hist']:
+        sgn_templ, sgn_frac = get_corr_bkg(cfg_cutset, corr_bkg_file, pt_bin_cfg['sgn_template'], pt_bin_cfg["fit_range"], pt_label, config_file['templ_features'], config_file['templ_type'])
+        
+        # get_corr_bkg_template(f"{pt_label}/{pt_bin_cfg['sgn_template']}/", config_file['input_type'], corr_bkg_file_path)
+        fitter.set_signal_template(len(labels_sgn)-1, DataHandler(sgn_templ, limits=pt_bin_cfg["fit_range"], rebin=pt_bin_cfg.get('rebin', 1)))
+    # quit()
     result = fitter.mass_zfit()
+
+    if pt_bin_cfg.get("corr_bkgs"):
+        corr_bkg_file.Close()
 
     return fitter, result
 
@@ -286,7 +288,7 @@ def produce_func_labels(cfg, decay):
     
     return sgn_labels, bkg_labels
 
-def get_raw_yields(cfg_ry, cfg, data, outfile_name, corr_bkg_file_path, mass_axis_label, bkg_labels, sgn_labels):
+def get_raw_yields(cfg_ry, cfg, cfg_cutset, data, outfile_name, corr_bkg_file_path, mass_axis_label, bkg_labels, sgn_labels):
 
     if isinstance(data, TH1):
         data_hdl = DataHandler(data, limits=cfg_ry["fit_range"], rebin=cfg_ry.get('rebin', 1))
@@ -295,7 +297,7 @@ def get_raw_yields(cfg_ry, cfg, data, outfile_name, corr_bkg_file_path, mass_axi
 
     fit_info = {}
 
-    fitter, result = perform_fit(cfg, corr_bkg_file_path,
+    fitter, result = perform_fit(cfg_ry, cfg_cutset, corr_bkg_file_path,
                                  data_hdl, pt_label,
                                  config_file, pt_min, pt_max,
                                  bkg_labels, sgn_labels)
@@ -305,9 +307,10 @@ def get_raw_yields(cfg_ry, cfg, data, outfile_name, corr_bkg_file_path, mass_axi
         fig, axs = fitter.plot_mass_fit(style="ATLAS",
                                         figsize=(8, 8),
                                         axis_title=mass_axis_label,
-                                        show_extra_info=True,
+                                        show_extra_info=True if cfg_ry['sgn_func'] != ['hist'] else False,
                                         logy=cfg_ry.get('logy_plots', False),
-                                        extra_info_loc=["lower right", "lower left"])
+                                        extra_info_loc=["lower right", "lower left"]
+                                       )
         add_info_on_canvas(axs, "upper left", "pp", pt_min, pt_max)
 
         fig_res = fitter.plot_raw_residuals(style="ATLAS",
@@ -330,16 +333,41 @@ def get_raw_yields(cfg_ry, cfg, data, outfile_name, corr_bkg_file_path, mass_axi
         fig_res.savefig(os.path.join(outdir, suffix, f"massres_{pt_label}.pdf"))
         fig_pulls.savefig(os.path.join(outdir, suffix, f"masspulls_{pt_label}.pdf"))
 
-        fit_info['ry'] = fitter.get_raw_yield(0)[0]
-        fit_info['ry_unc'] = fitter.get_raw_yield(0)[1]
-        fit_info['ry_bin_counting'] = fitter.get_raw_yield_bincounting(0)[0]
-        fit_info['ry_bin_counting_unc'] = fitter.get_raw_yield_bincounting(0)[1]
-        fit_info['signif'] = fitter.get_significance(0)[0]
-        fit_info['signif_unc'] = fitter.get_significance(0)[1]
-        fit_info['s_over_b'] = fitter.get_signal_over_background(0)[0]
-        fit_info['s_over_b_unc'] = fitter.get_signal_over_background(0)[1]
-        fit_info['chi2_fits'] = float(fitter.get_chi2())
-        fit_info['chi2_over_ndf_fits'] = float(fitter.get_chi2())/fitter.get_ndf()
+        try:
+            fit_info['ry'] = fitter.get_raw_yield(0)[0]
+            fit_info['ry_unc'] = fitter.get_raw_yield(0)[1]
+        except Exception as e:
+            logger(f"Could not get raw yield: {e}", "WARNING")
+            fit_info['ry'] = -1.
+            fit_info['ry_unc'] = -1.
+        try:
+            fit_info['ry_bin_counting'] = fitter.get_raw_yield_bincounting(0)[0]
+            fit_info['ry_bin_counting_unc'] = fitter.get_raw_yield_bincounting(0)[1]
+        except Exception as e:
+            logger(f"Could not get raw yield from bin counting: {e}", "WARNING")
+            fit_info['ry_bin_counting'] = -1.
+            fit_info['ry_bin_counting_unc'] = -1.
+        try:
+            fit_info['signif'] = fitter.get_significance(0)[0]
+            fit_info['signif_unc'] = fitter.get_significance(0)[1]
+        except Exception as e:
+            logger(f"Could not get significance: {e}", "WARNING")
+            fit_info['signif'] = -1.
+            fit_info['signif_unc'] = -1.
+        try:
+            fit_info['s_over_b'] = fitter.get_signal_over_background(0)[0]
+            fit_info['s_over_b_unc'] = fitter.get_signal_over_background(0)[1]
+        except Exception as e:
+            logger(f"Could not get signal over background: {e}", "WARNING")
+            fit_info['s_over_b'] = -1.
+            fit_info['s_over_b_unc'] = -1.
+        try:
+            fit_info['chi2_fits'] = float(fitter.get_chi2())
+            fit_info['chi2_over_ndf_fits'] = float(fitter.get_chi2())/fitter.get_ndf()
+        except Exception as e:
+            logger(f"Could not get chi2: {e}", "WARNING")
+            fit_info['chi2_fits'] = -1.
+            fit_info['chi2_over_ndf_fits'] = -1.
 
         signal_pars = fitter.get_signal_pars()
         signal_pars_uncs = fitter.get_signal_pars_uncs()
@@ -367,12 +395,16 @@ def get_raw_yields(cfg_ry, cfg, data, outfile_name, corr_bkg_file_path, mass_axi
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments')
-    parser.add_argument('cfgfile', metavar='text', default='config_Ds_Fit.yml')
-    parser.add_argument('infile', metavar='text', default='')
+    parser.add_argument('cfgfile', metavar='text', default='config_fit.yml')
+    parser.add_argument('cutsetfile', metavar='text', default='cutset.yml')
+    parser.add_argument('infile', metavar='text', default='input_file.root')
     args = parser.parse_args()
 
     with open(args.cfgfile, 'r', encoding='utf8') as ymlfitConfigFile:
         config_file = yaml.load(ymlfitConfigFile, yaml.FullLoader)
+
+    with open(args.cutsetfile, 'r', encoding='utf8') as ymlcutsetFile:
+        cutset_file = yaml.load(ymlcutsetFile, yaml.FullLoader)
 
     _, mass_axis_label, decay, _, _, _ = get_particle_info(config_file["Dmeson"])
 
@@ -383,21 +415,9 @@ if __name__ == "__main__":
     outfile = args.infile.replace('proj', 'rawyield')
     ofile = uproot.recreate(outfile)
     ofile.close()
-    # with open(f"{os.path.dirname(outfile)}/config.yml", 'w', encoding='utf8') as ymlfitConfigFilePrefit:
-    #     yaml.dump(config_fit, ymlfitConfigFilePrefit, default_flow_style=None, sort_keys=False)
-
-    # Eventually prepare config file for postfit (signal parameters free)
-    if config_file['ry_setup'].get('postfit_sgn'):
-        config_file_postfit = copy.deepcopy(config_fit)
-        outfile_postfit = args.infile.replace('proj', 'rawyield_postfit')
-        os.makedirs(os.path.dirname(outfile_postfit), exist_ok=True)
-        ofile_postfit = uproot.recreate(outfile_postfit)
-        ofile_postfit.close()
 
     # Store fit info
     fit_infos, postfit_infos = {}, {}
-
-    corr_bkg_file_path = outfile.replace('rawyield', 'corrbkg')
 
     pt_lims = []
     cfg_ry = config_file['ry_setup']
@@ -411,16 +431,29 @@ if __name__ == "__main__":
     data = get_data_to_fit(args.infile, pt_label, config_file['input_type'])
 
     # Produce function labels and perform fit
-    sgn_labels, bkg_labels = produce_func_labels(config_file, decay)
-    pt_fit_info = get_raw_yields(cfg_ry, config_file, data, outfile, corr_bkg_file_path, mass_axis_label, bkg_labels, sgn_labels)
+    sgn_labels, bkg_labels = produce_func_labels(cfg_ry, decay)
+    corr_bkg_file_path = f"{config_file['corr_bkg_file']}_{pt_label}.root" if config_file.get('corr_bkg_file') else None
+    pt_fit_info = get_raw_yields(cfg_ry, config_file, cutset_file, data, outfile, corr_bkg_file_path, mass_axis_label, bkg_labels, sgn_labels)
 
     for key in pt_fit_info.keys():
         if key not in fit_infos:
             fit_infos[key] = 0.
         fit_infos[key] = pt_fit_info[key]
 
+    file_std_fit = uproot.update(outfile)
+    for par in fit_infos.keys():
+        file_std_fit[f"h_{par}"] = create_hist(pt_lims, fit_infos[par], fit_infos[par+'_unc'] if par+'_unc' in fit_infos.keys() else 0.)
+    file_std_fit.close()
+
     # Eventually perform postfit (signal parameters all free) if requested
     if cfg_ry.get('postfit_sgn'):
+
+        config_file_postfit = copy.deepcopy(config_fit)
+        outfile_postfit = args.infile.replace('proj', 'rawyield_postfit')
+        os.makedirs(os.path.dirname(outfile_postfit), exist_ok=True)
+        ofile_postfit = uproot.recreate(outfile_postfit)
+        ofile_postfit.close()
+
         cfg_postfit = copy.deepcopy(config_file_postfit['ry_setup'])
         cfg_postfit['init_pars']['fix_sgn_from_file'] = []
         cfg_postfit['init_pars']['init_pars_sgn'] = []
@@ -471,12 +504,6 @@ if __name__ == "__main__":
                 postfit_infos[key] = 0.
             postfit_infos[key] = pt_fit_info_postfit[key]
 
-    file_std_fit = uproot.update(outfile)
-    for par in fit_infos.keys():
-        file_std_fit[f"h_{par}"] = create_hist(pt_lims, fit_infos[par], fit_infos[par+'_unc'] if par+'_unc' in fit_infos.keys() else 0.)
-    file_std_fit.close()
-
-    if cfg_ry.get('postfit_sgn'):
         file_postfit = uproot.update(outfile_postfit)
         for par in postfit_infos.keys():
             file_postfit[f"h_{par}"] = create_hist(pt_lims, postfit_infos[par], postfit_infos[par+'_unc'] if par+'_unc' in postfit_infos.keys() else 0.)

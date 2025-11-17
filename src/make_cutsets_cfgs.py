@@ -45,8 +45,8 @@ def make_yaml_cutvar(flow_config, outputdir, correlated):
             'pt_max': cfg['ry_setup']['pt_range'][1],
             'score_bkg_min': 0.0,
             'score_bkg_max': cut_var['bkg_max'],
-            'score_FD_min': float(fd_cut),
-            'score_FD_max': 1.0
+            'score_fd_min': float(fd_cut),
+            'score_fd_max': 1.0
         }
         print(f'{outputdir}/cutsets/cutset_{i_cut:02}.yml')
         with open(f'{outputdir}/cutsets/cutset_{i_cut:02}.yml', 'w') as file:
@@ -70,8 +70,8 @@ def make_yaml_ry(flow_config, outputdir, correlated):
         'pt_max': cfg['ry_setup']['pt_range'][1],
         'score_bkg_min': 0.0,
         'score_bkg_max': cfg['ry_setup']['bkg_cut_central'],
-        'score_FD_min': cfg['ry_setup']['fd_min_cut_central'],
-        'score_FD_max': cfg['ry_setup']['fd_max_cut_central']
+        'score_fd_min': cfg['ry_setup']['fd_min_cut_central'],
+        'score_fd_max': cfg['ry_setup']['fd_max_cut_central']
     }
 
     outdir = os.path.join(cfg["outdir"], cfg["outfolder"])

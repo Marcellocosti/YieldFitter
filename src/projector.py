@@ -69,7 +69,7 @@ def proj_multitrial_sparse(config, multitrial_folder):
 
 def proj_data_sparse(data_dict, axes, proj_scores, writeopt):
 
-    proj_vars = ['Mass', 'score_FD', 'score_bkg'] if proj_scores else ['Mass']
+    proj_vars = ['Mass', 'score_fd', 'score_bkg'] if proj_scores else ['Mass']
     proj_axes = [axes['Data'][var] for var in proj_vars]
 
     for var, ax in zip(proj_vars, proj_axes):
@@ -86,7 +86,7 @@ def proj_data_sparse(data_dict, axes, proj_scores, writeopt):
 
 def proj_data_tree(out_file_path, cols_dict, data_frames_dict, proj_scores, pt_min, pt_max, writeopt='recreate'):
     # Columns to keep
-    branches_to_keep = ['Mass', 'score_FD', 'score_bkg'] if proj_scores else ['Mass']
+    branches_to_keep = ['Mass', 'score_fd', 'score_bkg'] if proj_scores else ['Mass']
     print(f"Branches to keep: {branches_to_keep}")
     print(f"Columns dict: {cols_dict}")
     cols_to_keep = [cols_dict['Data'][branch] for branch in branches_to_keep]
@@ -393,8 +393,8 @@ if __name__ == "__main__":
     ptMax = cutSetCfg['pt_max']
     bkg_min = cutSetCfg['score_bkg_min']
     bkg_max = cutSetCfg['score_bkg_max']
-    fd_min = cutSetCfg['score_FD_min']
-    fd_max = cutSetCfg['score_FD_max']
+    fd_min = cutSetCfg['score_fd_min']
+    fd_max = cutSetCfg['score_fd_max']
     print(f"Applying cuts: bkg [{bkg_min}, {bkg_max}], FD [{fd_min}, {fd_max}]")
     # Cut on centrality and pt on data applied in the preprocessing
     print(f'Projecting distributions for {ptMin:.1f} < pT < {ptMax:.1f} GeV/c')
@@ -411,7 +411,7 @@ if __name__ == "__main__":
             print(f"type inputsData[key]: {type(inputsData[key])}")
             inputsData[key] = apply_selection(inputsData[key], axes['Data'], "score_bkg", bkg_min, bkg_max)
             print_entries(inputsData[key], "Entries after selection bkg")
-            inputsData[key] = apply_selection(inputsData[key], axes['Data'], "score_FD", fd_min, fd_max)
+            inputsData[key] = apply_selection(inputsData[key], axes['Data'], "score_fd", fd_min, fd_max)
             print_entries(inputsData[key], "Entries after selection FD and bkg")
         if is_sparse_data_type:
             proj_data_sparse(inputsData, axes, config["projections"].get('storeML'), write_opt_data)
@@ -422,7 +422,7 @@ if __name__ == "__main__":
     if operations.get("do_proj_mc"):
         for key, _ in inputsReco.items():
             inputsReco[key] = apply_selection(inputsReco[key], axes[key], 'score_bkg', bkg_min, bkg_max)
-            inputsReco[key] = apply_selection(inputsReco[key], axes[key], 'score_FD', fd_min, fd_max)
+            inputsReco[key] = apply_selection(inputsReco[key], axes[key], 'score_fd', fd_min, fd_max)
 
         if is_sparse_data_type:
             proj_mc_reco_sparse(inputsReco, sPtWeightsD, sPtWeightsB, Bspeciesweights, write_opt_mc)

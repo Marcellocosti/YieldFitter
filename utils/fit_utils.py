@@ -37,6 +37,7 @@ def add_info_on_canvas(axs, loc, system, pt_min, pt_max, fitter=None):
     if fitter is not None:
         chi2 = fitter.get_chi2()
         ndf = fitter.get_ndf()
+        print(f"chi2: {chi2}, ndf: {ndf}")
         text += fr"$\chi^2 / \mathrm{{ndf}} =${chi2:.2f} / {ndf} $\simeq$ {chi2/ndf:.2f}""\n"
 
     text += "\n\n"
@@ -160,6 +161,18 @@ def get_signal_pars_dict(sgn_func, pt_limits):
     elif sgn_func == ["doublecb", "doublecb"]:
         signal_pars = ['rawyield1', 'mu1', 'sigma1', 'alphal1', 'nl1', 'alphar1', 'nr1',
                        'rawyield2', 'mu2', 'sigma2', 'alphal2', 'nl2', 'alphar2', 'nr2']
+    elif sgn_func == ["genergausexptailsymm"]:
+        signal_pars = ['rawyield', 'mu', 'sigma', 'alpha']
+    elif sgn_func == ["genergausexptail"]:
+        signal_pars = ['rawyield', 'mu', 'sigmal', 'alphal', 'sigmar', 'alphar']
+    elif sgn_func == ["bifurgaus"]:
+        signal_pars = ['rawyield', 'mu', 'sigmal', 'alphal']
+    elif sgn_func == ["cauchy"]:
+        signal_pars = ['rawyield', 'mu', 'gamma']
+    elif sgn_func == ["voigtian"]:
+        signal_pars = ['rawyield', 'mu', 'sigma', 'gamma']
+    else:
+        raise ValueError(f"Signal function '{sgn_func}' not recognized.")
 
     for par in signal_pars:
         signal_pars_dict[par] = TH1F(f"hist_{par}", f";#it{{p}}_{{T}} (GeV/#it{{c}}); {par}",

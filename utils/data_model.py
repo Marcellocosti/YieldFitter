@@ -110,7 +110,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'Mass': 0,
             'Pt': 1,
             'score_bkg': 2,
-            'score_FD': 4,
+            'score_fd': 4,
             'cent': 5
         }
 
@@ -120,7 +120,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'Pt': 1,
             'score_bkg': 2,
             'score_prompt': 3,
-            'score_FD': 4,
+            'score_fd': 4,
             'cent': 5,
             'occ': 6,
         }
@@ -129,7 +129,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'Pt': 1,
             'score_bkg': 2,
             'score_prompt': 3,
-            'score_FD': 4,
+            'score_fd': 4,
             'cent': 5,
             'occ': 6,
             'pt_bmoth': 7,
@@ -157,7 +157,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'Pt': 1,
             'cent': 2,
             'score_bkg': 3,
-            'score_FD': 5
+            'score_fd': 5
         }
 
         ### MC
@@ -176,7 +176,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'Pt': 'fPtD',
             'score_bkg': 'fMlScoreBkg',
             'score_prompt': 'fMlScorePrompt',
-            'score_FD': 'fMlScoreNonPrompt'
+            'score_fd': 'fMlScoreNonPrompt'
         }
 
     elif data_type == "DplusTree":
@@ -187,7 +187,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'cent': 'fCentrality',
             'score_bkg': 'fMlScore0',
             'score_prompt': 'fMlScorePrompt',
-            'score_FD': 'fMlScore1'
+            'score_fd': 'fMlScore1'
         }
 
         ### MC
@@ -197,7 +197,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'cent': 'fCentrality',
             'score_bkg': 'fMlScore0',
             'score_prompt': 'fMlScorePrompt',
-            'score_FD': 'fMlScore1'
+            'score_fd': 'fMlScore1'
         }
         axes_dict['RecoFD'] = {
             'Mass': 'fM',
@@ -205,7 +205,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'cent': 'fCentrality',
             'score_bkg': 'fMlScore0',
             'score_prompt': 'fMlScorePrompt',
-            'score_FD': 'fMlScore1'
+            'score_fd': 'fMlScore1'
         }
         axes_dict['GenPrompt'] = {
             'Mass': 'fM',
@@ -225,7 +225,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'cent': 'fCentrality',
             'score_bkg': 'fMlScore0',
             'score_prompt': 'fMlScorePrompt',
-            'score_FD': 'fMlScore1'
+            'score_fd': 'fMlScore1'
         }
         ### MC
         axes_dict['RecoPrompt'] = {
@@ -234,7 +234,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'cent': 'fCentrality',
             'score_bkg': 'fMlScore0',
             'score_prompt': 'fMlScorePrompt',
-            'score_FD': 'fMlScore1'
+            'score_fd': 'fMlScore1'
         }
         axes_dict['RecoFD'] = {
             'Mass': 'fM',
@@ -242,7 +242,7 @@ def get_data_model_dicts(config, data_type="DplusTask"):
             'cent': 'fCentrality',
             'score_bkg': 'fMlScore0',
             'score_prompt': 'fMlScorePrompt',
-            'score_FD': 'fMlScore1'
+            'score_fd': 'fMlScore1'
         }
         axes_dict['GenPrompt'] = {
             'Pt': 'Pt',

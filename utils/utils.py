@@ -267,7 +267,6 @@ def get_centrality_bins(centrality):
         - cent_label:
             str, centrality label
     '''
-    print("CIAOOOO")
     if centrality == 'k05':
         return '0_5', [0, 5]
     if centrality == 'k510':

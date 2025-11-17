@@ -285,8 +285,8 @@ def pre_process_data_mc(config):
     centmin, centmax = get_centrality_bins(config['centrality'])[1]
 
     # Load the inputs
-    data_inputs, reco_inputs, gen_inputs, data_model_vars = get_inputs(config, config["operations"].get("preprocess_data", False),
-                                                                       config["operations"].get("preprocess_mc", False), True)
+    data_inputs, reco_inputs, gen_inputs, data_model_vars = get_inputs(config, config["operations"].get("do_prep_data", False),
+                                                                       config["operations"].get("do_prep_mc", False), True)
     outputDir = config.get('outdirPrep', config['outdir'])
     os.makedirs(f'{outputDir}/preprocess', exist_ok=True)
     logger(f'Creating file {outputDir}/preprocess/DebugPreprocess.root')
@@ -294,7 +294,7 @@ def pre_process_data_mc(config):
 
     bkg_maxs = config['preprocess']['bkg_cuts']
     max_workers = config['preprocess']['workers'] # hyperparameter
-    if config["operations"]["preprocess_data"] and config['preprocess'].get('data'):
+    if config["operations"]["do_prep_data"] and config['preprocess'].get('data'):
         logger("##### Skimming Data #####")
         ### Centrally cut on centrality and max of bkg scores
         for key, dataset_inputs in data_inputs.items():
@@ -325,7 +325,7 @@ def pre_process_data_mc(config):
 
         logger("Finished processing data")
 
-    if config["operations"].get("preprocess_mc") and config['preprocess'].get('mc'):
+    if config["operations"].get("do_prep_mc") and config['preprocess'].get('mc'):
         logger("##### Skimming Monte Carlo #####")
         ### Centrally cut on centrality and max of bkg scores
         for key, reco_input in reco_inputs.items():
@@ -368,7 +368,7 @@ def pre_process_data_mc(config):
 
         logger("Finished processing MC")
 
-    if not config["operations"]["preprocess_data"] and not config["operations"]["preprocess_mc"]:
+    if not config["operations"]["do_prep_data"] and not config["operations"]["do_prep_mc"]:
         logger("No data or mc pre-processing enabled. Exiting.", level='ERROR')
     debugPreprocessFile.Close()
 
